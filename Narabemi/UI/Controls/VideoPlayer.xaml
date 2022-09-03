@@ -1,0 +1,356 @@
+﻿<UserControl x:Class="Narabemi.UI.Controls.VideoPlayer"
+             x:Name="MyVideoPlayer"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             xmlns:ffme="clr-namespace:Unosquare.FFME;assembly=ffme.win"
+             xmlns:local="clr-namespace:Narabemi.UI.Controls"
+             xmlns:windows="clr-namespace:Narabemi.UI.Windows"
+             xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+             xmlns:b="http://schemas.microsoft.com/xaml/behaviors"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance {x:Type local:VideoPlayerViewModel}}"
+             d:DesignHeight="450"
+             d:DesignWidth="800"
+             AllowDrop="True">
+
+    <UserControl.Resources>
+        <Style  TargetType="{x:Type TextBlock}">
+            <Setter Property="Padding"
+                    Value="0, 0, 4, 0" />
+            <Setter Property="VerticalAlignment"
+                    Value="Bottom" />
+        </Style>
+    </UserControl.Resources>
+
+    <b:Interaction.Triggers>
+        <b:EventTrigger EventName="DragEnter">
+            <b:InvokeCommandAction Command="{Binding DragEnterCommand}"
+                                   PassEventArgsToCommand="True" />
+        </b:EventTrigger>
+        <b:EventTrigger EventName="DragLeave">
+            <b:InvokeCommandAction Command="{Binding DragLeaveCommand}" />
+        </b:EventTrigger>
+        <b:EventTrigger EventName="Drop">
+            <b:InvokeCommandAction Command="{Binding DropCommand}"
+                                   PassEventArgsToCommand="True" />
+        </b:EventTrigger>
+    </b:Interaction.Triggers>
+
+    <Grid Background="{StaticResource VideoBackground}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"
+                           MinHeight="{Binding ElementName=MyVideoPlayer, Path=MinHeight}" />
+            <RowDefinition Height="auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Video -->
+        <Grid Grid.Row="0"
+              Grid.RowSpan="2"
+              x:Name="VideoGrid"
+              HorizontalAlignment="Stretch"
+              VerticalAlignment="Stretch">
+
+            <ffme:MediaElement x:Name="VideoMediaElement"
+                               Volume="{Binding ActualVolume, Mode=TwoWay}"
+                               IsMuted="{Binding IsActualVolumeMuted, Mode=TwoWay}"
+                               LoadedBehavior="Manual"
+                               UnloadedBehavior="Manual"
+                               LoopingBehavior="Manual">
+                <b:Interaction.Triggers>
+                    <b:EventTrigger EventName="MediaOpened">
+                        <b:InvokeCommandAction Command="{Binding MediaOpenedCommand}"
+                                               PassEventArgsToCommand="True" />
+                    </b:EventTrigger>
+                    <b:EventTrigger EventName="MediaEnded">
+                        <b:InvokeCommandAction Command="{Binding MediaEndedCommand}"
+                                               PassEventArgsToCommand="True" />
+                    </b:EventTrigger>
+                </b:Interaction.Triggers>
+            </ffme:MediaElement>
+
+            <!-- File Drop Area -->
+            <Border BorderBrush="WhiteSmoke"
+                    BorderThickness="{Binding FileDropBorderWidth, FallbackValue=0}" />
+        </Grid>
+
+        <!-- Controls -->
+        <Grid Grid.Row="1"
+              x:Name="ControlsGrid"
+              Visibility="{Binding IsControlPanelVisible, Converter={StaticResource BooleanToVisibilityConverter}}"
+              Background="{StaticResource VideoControlsBackground}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="auto" />
+                <RowDefinition Height="auto" />
+                <RowDefinition Height="auto" />
+                <RowDefinition Height="auto" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0"
+                  Margin="{StaticResource VideoControlThickness}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Speed -->
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal">
+                        <Label VerticalAlignment="Center"
+                               Target="{Binding ElementName=SpeedRatioSlider}"
+                               ToolTip="Speed">
+                            <iconPacks:PackIconMaterial Kind="PlaySpeed" />
+                        </Label>
+                        <local:Spacer Width="{StaticResource SpaceTiny}" />
+                    </StackPanel>
+
+                    <Slider Grid.Column="1"
+                            VerticalAlignment="Center"
+                            x:Name="SpeedRatioSlider"
+                            Minimum="0.0"
+                            Maximum="2.0"
+                            TickFrequency="0.1"
+                            TickPlacement="Both"
+                            Value="{Binding ElementName=VideoMediaElement, Path=SpeedRatio}"
+                            IsEnabled="{Binding DataContext.AutoSync, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type windows:MainWindow}}, Converter={StaticResource InverseBooleanConverter}}" />
+
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal">
+                        <local:Spacer Width="{StaticResource SpaceTiny}" />
+                        <TextBlock  VerticalAlignment="Center"
+                                    Text="{Binding ElementName=VideoMediaElement, Path=SpeedRatio, StringFormat='{}{0:P0}'}" />
+                        <local:Spacer Width="{StaticResource SpaceMedium}" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Balance -->
+                <Grid Grid.Column="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal">
+                        <Label VerticalAlignment="Center"
+                               Target="{Binding ElementName=BalanceSlider}"
+                               ToolTip="Balance">
+                            <iconPacks:PackIconMaterial Kind="PanHorizontal" />
+                        </Label>
+                        <local:Spacer Width="{StaticResource SpaceTiny}" />
+                    </StackPanel>
+
+                    <Slider Grid.Column="1"
+                            VerticalAlignment="Center"
+                            x:Name="BalanceSlider"
+                            Minimum="-1.0"
+                            Maximum="1.0"
+                            TickFrequency="0.1"
+                            TickPlacement="Both"
+                            Value="{Binding ElementName=VideoMediaElement, Path=Balance}" />
+
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal">
+                        <local:Spacer Width="{StaticResource SpaceTiny}" />
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="{Binding ElementName=VideoMediaElement, Path=Balance, StringFormat='{}{0:P0}'}" />
+                        <local:Spacer Width="{StaticResource SpaceMedium}" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Audio Volume -->
+                <Grid Grid.Column="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal">
+                        <Label VerticalAlignment="Center"
+                               Target="{Binding ElementName=VolumeSlider}"
+                               ToolTip="Volume">
+                            <iconPacks:PackIconMaterial Kind="{Binding IsLocalVolumeMuted, Converter={StaticResource BoolToMutedVolumeIconKindConverter}}" />
+
+                            <b:Interaction.Triggers>
+                                <b:EventTrigger EventName="PreviewMouseDown">
+                                    <b:InvokeCommandAction Command="{Binding VolumeIconMouseDownCommand}"
+                                                           PassEventArgsToCommand="True" />
+                                </b:EventTrigger>
+                            </b:Interaction.Triggers>
+                        </Label>
+                        <local:Spacer Width="{StaticResource SpaceTiny}" />
+                    </StackPanel>
+
+                    <Slider Grid.Column="1"
+                            VerticalAlignment="Center"
+                            x:Name="VolumeSlider"
+                            Minimum="0.0"
+                            Maximum="1.3"
+                            TickFrequency="0.1"
+                            TickPlacement="Both"
+                            IsEnabled="{Binding IsLocalVolumeMuted, Converter={StaticResource InverseBooleanConverter}}"
+                            Value="{Binding LocalVolume}" />
+
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal">
+                        <local:Spacer Width="{StaticResource SpaceTiny}" />
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="{Binding LocalVolume, StringFormat='{}{0:P0}'}" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <Grid Grid.Row="1"
+                  Margin="{StaticResource VideoControlThickness}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Position -->
+                <StackPanel Grid.Column="0"
+                            Orientation="Horizontal">
+                    <Button VerticalAlignment="Center"
+                            Command="{Binding FrameBackwardCommand}">
+                        <iconPacks:PackIconMaterial Kind="StepBackward" />
+                    </Button>
+                    <Button VerticalAlignment="Center"
+                            Command="{Binding FrameForwardCommand}">
+                        <iconPacks:PackIconMaterial Kind="StepForward" />
+                    </Button>
+
+                    <local:Spacer Width="{StaticResource SpaceMedium}" />
+
+                    <TextBlock VerticalAlignment="Center">
+                        <iconPacks:PackIconMaterial Kind="{Binding ElementName=VideoMediaElement, Path=MediaState, Converter={StaticResource MediaPlaybackStateToIconKindConverter} }" />
+                    </TextBlock>
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ElementName=VideoMediaElement, Path=MediaState}" />
+                    <TextBlock VerticalAlignment="Center"
+                               ToolTip="SMPTE Timecode"
+                               Text="{Binding ElementName=VideoMediaElement, Path=VideoSmtpeTimeCode}" />
+
+                    <TextBlock VerticalAlignment="Center"
+                               ToolTip="Position"
+                               Text="{Binding ElementName=VideoMediaElement, Path=Position, Converter={StaticResource TimeSpanToStringConverter}}" />
+                </StackPanel>
+
+                <Slider Grid.Column="1"
+                        VerticalAlignment="Center"
+                        x:Name="PositionSlider"
+                        IsEnabled="{Binding ElementName=VideoMediaElement, Path=IsOpen}"
+                        IsSnapToTickEnabled="False"
+                        SmallChange="{Binding ElementName=VideoMediaElement, Path=PositionStep, Converter={StaticResource TimeSpanToSecondsConverter}}"
+                        LargeChange="{Binding ElementName=VideoMediaElement, Path=PositionStep, Converter={StaticResource TimeSpanToSecondsConverter}}"
+                        Minimum="{Binding ElementName=VideoMediaElement, Path=PlaybackStartTime, Converter={StaticResource TimeSpanToSecondsConverter}}"
+                        Maximum="{Binding ElementName=VideoMediaElement, Path=PlaybackEndTime, Converter={StaticResource TimeSpanToSecondsConverter}}"
+                        Value="{Binding ElementName=VideoMediaElement, Path=Position, Converter={StaticResource TimeSpanToSecondsConverter}}" />
+
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal">
+                    <local:Spacer Width="{StaticResource SpaceTiny}" />
+
+                    <TextBlock VerticalAlignment="Center"
+                               ToolTip="Remaining Duration"
+                               Text="{Binding ElementName=VideoMediaElement, Path=RemainingDuration, Converter={StaticResource TimeSpanToStringConverter}}" />
+
+                    <local:Spacer Width="{StaticResource SpaceTiny}" />
+
+                    <!-- Offset -->
+                    <StackPanel Orientation="Horizontal"
+                                ToolTip="Offset">
+                        <Label VerticalAlignment="Center"
+                               Target="{Binding ElementName=OffsetNumberBox}">
+                            <StackPanel>
+                                <iconPacks:PackIconMaterial Kind="PlusMinusVariant" />
+                            </StackPanel>
+                        </Label>
+
+                        <local:Spacer Width="{StaticResource SpaceTiny}" />
+
+                        <ui:NumberBox VerticalAlignment="Center"
+                                      x:Name="OffsetNumberBox"
+                                      Value="{Binding Offset, Converter={StaticResource TimeSpanToSecondsConverter}}"
+                                      AcceptsExpression="True"
+                                      PlaceholderText="Offset" />
+
+                        <local:Spacer Width="{StaticResource SpaceTiny}" />
+
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="secs" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="3"
+                  Margin="{StaticResource VideoControlThickness}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0"
+                            Orientation="Horizontal">
+                    <Button x:Name="OpenButton"
+                            VerticalAlignment="Center"
+                            ToolTip="Open File"
+                            Command="{Binding OpenCommand}">
+                        <iconPacks:PackIconMaterial Kind="FolderOpen" />
+                    </Button>
+                    <Button x:Name="ReopenButton"
+                            VerticalAlignment="Center"
+                            ToolTip="Reopen File"
+                            Command="{Binding ReopenCommand}">
+                        <iconPacks:PackIconMaterial Kind="Reload" />
+                    </Button>
+
+                    <local:Spacer Width="{StaticResource SpaceTiny}" />
+
+                    <!-- File Name  -->
+                    <ui:HyperlinkButton x:Name="TitleTextBlock"
+                                        VerticalAlignment="Center"
+                                        ToolTip="{Binding VideoPath}"
+                                        Content="{Binding VideoPath, Converter={StaticResource FilePathToFileNameConverter}}"
+                                        Command="{Binding OpenFileLocationCommand}"
+                                        CommandParameter="{Binding VideoPath}"
+                                        Cursor="Hand" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal">
+                    <!-- Metadata -->
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ElementName=VideoMediaElement, Path=NaturalDuration, Converter={StaticResource TimeSpanToStringConverter}}" />
+
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding DisplaySize}" />
+                    <ui:HyperlinkButton VerticalAlignment="Center"
+                                        Padding="0, 0, 4, 0"
+                                        Content="{Binding DisplayAspectRatio}"
+                                        Command="{Binding DisplayAspectRatioApplyCommand}"
+                                        CommandParameter="{Binding DisplayAspectRatio}" />
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ElementName=VideoMediaElement, Path=VideoFrameRate, StringFormat={}{0:F2}fps}" />
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ElementName=VideoMediaElement, Path=VideoCodec}" />
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ElementName=VideoMediaElement, Path=AudioCodec}" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

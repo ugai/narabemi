@@ -1,0 +1,11 @@
+{
+  "Loop": false,
+  "AutoSync": true,
+  "MainPlayerIndex": 0,
+  "VideoPathList": [
+    "D:\\douga\\jojo3_48_deband.mp4.mov",
+    "D:\\douga\\jojo3_48_waifu2x_2x_2n_mp4.mp4"
+  ],
+  "BlendBorderWidth": 1.0,
+  "BlendBorderColor": "#fcfcfc"
+}

@@ -1,0 +1,138 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <SignAssembly>false</SignAssembly>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <Product>Narabemi</Product>
+    <Authors>ugai</Authors>
+    <Version>0.1.0</Version>
+    <PackageIcon>app.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/ugai/narabemi</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <StartupObject></StartupObject>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <EpoxyBuildEnable>false</EpoxyBuildEnable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\ShaderSamplingModeNames.cs\**" />
+    <EmbeddedResource Remove="Models\ShaderSamplingModeNames.cs\**" />
+    <None Remove="Models\ShaderSamplingModeNames.cs\**" />
+    <Page Remove="Models\ShaderSamplingModeNames.cs\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\ShaderSamplingModes.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Assets\app.png" />
+    <None Remove="Assets\app.svg" />
+    <None Remove="Narabemi.log" />
+    <None Remove="threshold.fxc" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Content Include="Assets\app.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Resource Include="Assets\app.svg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Diagnostics" Version="8.0.0" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.0.0" />
+    <PackageReference Include="Epoxy.Wpf" Version="1.7.0" />
+    <PackageReference Include="FFME.Windows" Version="4.4.350" />
+    <PackageReference Include="MahApps.Metro.IconPacks.Material" Version="4.11.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="6.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.2.10-beta">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="ModernWpfUI" Version="0.9.6" />
+    <PackageReference Include="ReactiveProperty.WPF" Version="8.1.2" />
+    <PackageReference Include="ZLogger" Version="1.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Properties\Resources.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appstates.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="download_ffmpeg.bat">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Shaders\blend_vertical.fxc">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+    <None Update="Shaders\blend_vertical.hlsl">
+      <SubType>Code</SubType>
+    </None>
+    <None Update="Shaders\blend.fxc">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+    <None Update="Shaders\blend.hlsl">
+      <SubType>Code</SubType>
+    </None>
+  </ItemGroup>
+
+  <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
+    <Exec Command="pushd $(ProjectDir)Shaders&#xD;&#xA;call .\compile_shaders.bat&#xD;&#xA;popd&#xD;&#xA;&#xD;&#xA;xcopy /fiy $(ProjectDir)Shaders $(OutDir)Shaders" />
+  </Target>
+
+  <Target Name="RemoveDuplicateAnalyzers" BeforeTargets="CoreCompile">
+    <!-- Work around https://github.com/dotnet/wpf/issues/6792 -->
+    <ItemGroup>
+      <FilteredAnalyzer Include="@(Analyzer-&gt;Distinct())" />
+      <Analyzer Remove="@(Analyzer)" />
+      <Analyzer Include="@(FilteredAnalyzer)" />
+    </ItemGroup>
+  </Target>
+
+  <ProjectExtensions><VisualStudio><UserProperties appsettings_1json__JsonSchema="" /></VisualStudio></ProjectExtensions>
+</Project>

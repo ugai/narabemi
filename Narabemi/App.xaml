@@ -1,0 +1,84 @@
+﻿<Application x:Class="Narabemi.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             xmlns:local="clr-namespace:Narabemi"
+             xmlns:controls="clr-namespace:Narabemi.UI.Controls"
+             xmlns:system="clr-namespace:System;assembly=mscorlib">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ui:ThemeResources />
+                <ui:XamlControlsResources />
+                <ui:IntellisenseResources Source="/ModernWpf;component/DesignTime/DesignTimeResources.xaml" />
+                <ResourceDictionary>
+                    <!-- Converters -->
+                    <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+                    <local:TimeSpanToStringConverter x:Key="TimeSpanToStringConverter" />
+                    <local:TimeSpanToSecondsConverter x:Key="TimeSpanToSecondsConverter" />
+                    <local:FilePathToFileNameConverter x:Key="FilePathToFileNameConverter" />
+                    <local:DurationToSecondsConverter x:Key="DurationToSecondsConverter" />
+                    <local:ColorToStringConverter x:Key="ColorToStringConverter" />
+                    <local:MediaPlaybackStateToIconKindConverter x:Key="MediaPlaybackStateToIconKindConverter" />
+                    <local:GlobalPlaybackStateToTogglePlayPauseIconKindConverter x:Key="GlobalPlaybackStateToTogglePlayPauseIconKindConverter" />
+                    <local:AspectRatioToStringConverter x:Key="AspectRatioToStringConverter" />
+                    <local:BoolToMutedVolumeIconKindConverter x:Key="BoolToMutedVolumeIconKindConverter" />
+                    <local:InverseBooleanConverter x:Key="InverseBooleanConverter" />
+                    <local:BoolToLoopingBehaviorMediaPlaybackStateConverter x:Key="BoolToLoopingBehaviorMediaPlaybackStateConverter" />
+
+                    <system:Double x:Key="SpaceMedium">12</system:Double>
+                    <system:Double x:Key="SpaceTiny">6</system:Double>
+                    <Thickness x:Key="VideoControlThickness">4</Thickness>
+
+                    <SolidColorBrush x:Key="VideoBackground"
+                                     Color="#000" />
+                    <LinearGradientBrush x:Key="VideoControlsBackground"
+                                         StartPoint="0,0"
+                                         EndPoint="0,1">
+                        <!--
+                            Gradient generation code (python):
+                                ```
+                                import math; step = 6; vstart = 128; vend = 255; vamount = vend - vstart; mag = 4; rrggbbcode = "000000";
+                                seq = [v / (step - 1) for v in range(step)]
+                                offset_list = [round(1.0 - pow(1.0 - v, mag), 5) for v in seq];  # easeOut~
+                                alpha_list = [hex(math.floor(vstart + vamount * v))[2:].upper().zfill(2) for v in seq];
+                                for v in zip(offset_list, alpha_list):
+                                    print(f'<GradientStop Offset="{v[0]}" Color="#{v[1]}{rrggbbcode}" />')
+                                ```
+                        -->
+                        <GradientStopCollection>
+                            <GradientStop Offset="0.0"
+                                          Color="#80000000" />
+                            <GradientStop Offset="0.5904"
+                                          Color="#99000000" />
+                            <GradientStop Offset="0.8704"
+                                          Color="#B2000000" />
+                            <GradientStop Offset="0.9744"
+                                          Color="#CC000000" />
+                            <GradientStop Offset="0.9984"
+                                          Color="#E5000000" />
+                            <GradientStop Offset="1.0"
+                                          Color="#FF000000" />
+                        </GradientStopCollection>
+                    </LinearGradientBrush>
+
+                    <Storyboard x:Key="ShowControlAnimationStoryboard">
+                        <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                         From="0.0"
+                                         To="1.0"
+                                         Duration="0:0:1" />
+                    </Storyboard>
+                    <Storyboard x:Key="HideControlAnimationStoryboard">
+                        <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                         From="1.0"
+                                         To="0.0"
+                                         Duration="0:0:1" />
+                    </Storyboard>
+                </ResourceDictionary>
+                <!-- Other merged dictionaries here -->
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Other app resources here -->
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

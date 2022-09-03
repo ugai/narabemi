@@ -1,0 +1,348 @@
+﻿<Window x:Class="Narabemi.UI.Windows.MainWindow"
+        x:Name="CurrentMainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:iconPacks="clr-namespace:MahApps.Metro.IconPacks;assembly=MahApps.Metro.IconPacks.Material"
+        xmlns:narabemi="clr-namespace:Narabemi"
+        xmlns:controls="clr-namespace:Narabemi.UI.Controls"
+        xmlns:local="clr-namespace:Narabemi.UI.Windows"
+        xmlns:b="http://schemas.microsoft.com/xaml/behaviors"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance {x:Type local:MainWindowViewModel}}"
+        Height="720"
+        Width="1280"
+        Icon="/Assets/app.ico"
+        ui:WindowHelper.UseModernWindowStyle="True">
+
+    <b:Interaction.Triggers>
+        <b:EventTrigger EventName="Loaded">
+            <b:InvokeCommandAction Command="{Binding LoadedCommand}" />
+        </b:EventTrigger>
+        <b:EventTrigger EventName="Closed">
+            <b:InvokeCommandAction Command="{Binding ClosedCommand}" />
+        </b:EventTrigger>
+    </b:Interaction.Triggers>
+
+    <Window.CommandBindings>
+        <CommandBinding Command="{x:Static ApplicationCommands.Close}"
+                        Executed="CloseCommandBinding_Executed"
+                        CanExecute="CloseCommandBinding_CanExecute" />
+    </Window.CommandBindings>
+
+    <Window.Resources>
+        <sys:Double x:Key="MinVideoSize">50</sys:Double>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="auto" />
+            <RowDefinition Height="{Binding SideBySideViewGridHeight, Mode=TwoWay}" />
+            <RowDefinition Height="3" />
+            <RowDefinition Height="{Binding SliderComparisonViewGridHeight, Mode=TwoWay}" />
+            <RowDefinition Height="auto" />
+        </Grid.RowDefinitions>
+
+        <Menu Grid.Row="0">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Exit"
+                          Command="{x:Static ApplicationCommands.Close}" />
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="_Layouts">
+                    <MenuItem Header="Both"
+                              Command="{Binding SetLayoutBothViewtCommand}" />
+                    <MenuItem Header="Side By Side View"
+                              Command="{Binding SetLayouSideBySideViewCommand}" />
+                    <MenuItem Header="Comparison Slider View"
+                              Command="{Binding SetLayoutComparisonSliderViewCommand}" />
+                </MenuItem>
+            </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="_Version"
+                          Command="{Binding ShowVersionCommand}" />
+            </MenuItem>
+        </Menu>
+
+        <Grid Grid.Row="1"
+              x:Name="MultiVideoGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{Binding VideoPlayerAColumnWidth, Mode=TwoWay}" />
+                <ColumnDefinition Width="3" />
+                <ColumnDefinition Width="{Binding VideoPlayerBColumnWidth, Mode=TwoWay}" />
+            </Grid.ColumnDefinitions>
+
+            <controls:VideoPlayer Grid.Column="0"
+                                  x:Name="VideoPlayerA"
+                                  MinWidth="{StaticResource MinVideoSize}"
+                                  MinHeight="{StaticResource MinVideoSize}" />
+
+            <GridSplitter Grid.Column="1"
+                          ResizeDirection="Columns"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+                <b:Interaction.Triggers>
+                    <b:EventTrigger EventName="PreviewMouseDoubleClick">
+                        <b:InvokeCommandAction Command="{Binding TwinPlayerSplitterDoubleClickCommand}"
+                                               PassEventArgsToCommand="True" />
+                    </b:EventTrigger>
+                </b:Interaction.Triggers>
+            </GridSplitter>
+
+            <controls:VideoPlayer Grid.Column="2"
+                                  x:Name="VideoPlayerB"
+                                  MinWidth="{StaticResource MinVideoSize}"
+                                  MinHeight="{StaticResource MinVideoSize}" />
+        </Grid>
+
+        <GridSplitter Grid.Row="2"
+                      ResizeDirection="Rows"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
+                      Background="{DynamicResource SystemControlBackgroundBaseLowBrush}" />
+
+        <Grid Grid.Row="3"
+              Grid.RowSpan="2"
+              x:Name="BlendVideoGrid"
+              Background="{StaticResource VideoBackground}">
+            
+            <Viewbox x:Name="VideoViewbox"
+                     Stretch="Uniform">
+                <Grid x:Name="BlendGrid"
+                      Width="{Binding DisplayAspectRatio.Numerator}"
+                      Height="{Binding DisplayAspectRatio.Denominator}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Background="Transparent">
+                    <Grid.Effect>
+                        <narabemi:BlendEffect ShaderPath="{Binding ShaderFilePath}"
+                                              Width="{Binding ElementName=VideoViewbox, Path=ActualWidth}"
+                                              Height="{Binding ElementName=VideoViewbox, Path=ActualHeight}"
+                                              Ratio="{Binding BlendHorizontal}"
+                                              BorderWidth="{Binding BlendBorderWidth}"
+                                              BorderColor="{Binding BlendBorderColor}">
+                            <narabemi:BlendEffect.Input0>
+                                <VisualBrush Visual="{Binding ElementName=VideoPlayerA, Path=Grid}" />
+                            </narabemi:BlendEffect.Input0>
+                            <narabemi:BlendEffect.Input1>
+                                <VisualBrush Visual="{Binding ElementName=VideoPlayerB, Path=Grid}" />
+                            </narabemi:BlendEffect.Input1>
+                        </narabemi:BlendEffect>
+                    </Grid.Effect>
+
+                    <b:Interaction.Triggers>
+                        <b:EventTrigger EventName="PreviewMouseDown">
+                            <b:InvokeCommandAction Command="{Binding VideoMouseDownOrMoveCommand}"
+                                                   PassEventArgsToCommand="True" />
+                        </b:EventTrigger>
+                        <b:EventTrigger EventName="PreviewMouseMove">
+                            <b:InvokeCommandAction Command="{Binding VideoMouseDownOrMoveCommand}"
+                                                   PassEventArgsToCommand="True" />
+                        </b:EventTrigger>
+                    </b:Interaction.Triggers>
+                </Grid>
+            </Viewbox>
+        </Grid>
+
+        <Grid Grid.Row="4"
+              x:Name="ControlsGrid"
+              Background="{StaticResource VideoControlsBackground}"
+              Visibility="{Binding IsControlPanelVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="auto" />
+                <RowDefinition Height="auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Comparison Slider -->
+            <!--
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="{Binding ElementName=VideoViewbox, Path=ActualWidth}" />
+                    <ColumnDefinition />
+                </Grid.ColumnDefinitions>
+
+                <Label Grid.Column="0"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Center"
+                       Padding="8,0"
+                       ToolTip="Comparison Slider"
+                       Target="{Binding ElementName=BottomComparisonSlider}">
+                    <iconPacks:PackIconMaterial Kind="Compare" />
+                </Label>
+                <Slider Grid.Column="1"
+                        VerticalAlignment="Center"
+                        x:Name="BottomComparisonSlider"
+                        ToolTip="Comparison Slider"
+                        Maximum="1.0"
+                        Minimum="0.0"
+                        Value="{Binding BlendHorizontal}"
+                        LargeChange="0.1"
+                        SmallChange="0.01"
+                        TickFrequency="0.5"
+                        TickPlacement="BottomRight"
+                        IsSnapToTickEnabled="False" />
+            </Grid>
+            -->
+
+
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="auto" />
+                    <ColumnDefinition Width=".2*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0"
+                            Orientation="Horizontal"
+                            Margin="{StaticResource VideoControlThickness}">
+
+                    <!-- Media Playback -->
+                    <StackPanel Orientation="Horizontal">
+                        <Button VerticalAlignment="Center"
+                                ToolTip="Play/Pause"
+                                Command="{Binding PlayPauseCommand}">
+                            <iconPacks:PackIconMaterial Kind="{Binding GlobalPlaybackState, Converter={StaticResource GlobalPlaybackStateToTogglePlayPauseIconKindConverter}}" />
+                        </Button>
+
+                        <Button VerticalAlignment="Center"
+                                ToolTip="Stop"
+                                Command="{Binding StopCommand}">
+                            <iconPacks:PackIconMaterial Kind="Stop" />
+                        </Button>
+
+                        <!-- TODO: loop is hard. -->
+                        <!--
+                        <ToggleButton VerticalAlignment="Center"
+                                      ToolTip="Loop"
+                                      IsChecked="{Binding Loop}">
+                            <iconPacks:PackIconMaterial Kind="Repeat" />
+                        </ToggleButton>
+                        -->
+                    </StackPanel>
+
+                    <controls:Spacer Width="{StaticResource SpaceMedium}" />
+
+                    <!-- Sync -->
+                    <StackPanel Orientation="Horizontal">
+                        <Button VerticalAlignment="Center"
+                                ToolTip="Sync (once)"
+                                Command="{Binding SyncCommand}">
+                            <StackPanel Orientation="Horizontal">
+                                <iconPacks:PackIconMaterial Kind="Sync" />
+                                <TextBlock Text="Sync" />
+                            </StackPanel>
+                        </Button>
+
+                        <ToggleButton VerticalAlignment="Center"
+                                      ToolTip="Auto Sync"
+                                      IsChecked="{Binding AutoSync}">
+                            <StackPanel Orientation="Horizontal">
+                                <iconPacks:PackIconMaterial Kind="Sync" />
+                                <TextBlock Text="Auto Sync" />
+                            </StackPanel>
+                        </ToggleButton>
+
+                        <ComboBox VerticalAlignment="Center"
+                                  x:Name="MainPlayerComboBox"
+                                  ToolTip="Sync Source"
+                                  ItemsSource="{Binding PlayerNames}"
+                                  SelectedIndex="{Binding MainPlayerIndex}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Margin="{StaticResource VideoControlThickness}">
+                    <!-- Aspect Ratio -->
+                    <StackPanel Orientation="Horizontal"
+                                ToolTip="Aspect Ratio">
+                        <Label VerticalAlignment="Center"
+                               Target="{Binding ElementName=AspectRatioPresetsComboBox}">
+                            <iconPacks:PackIconMaterial Kind="AspectRatio" />
+                        </Label>
+
+                        <controls:Spacer Width="{StaticResource SpaceTiny}" />
+
+                        <ComboBox VerticalAlignment="Center"
+                                  x:Name="AspectRatioPresetsComboBox"
+                                  IsEditable="True"
+                                  IsTextSearchEnabled="True"
+                                  ItemsSource="{Binding AspectRatioPresets}"
+                                  Text="{Binding DisplayAspectRatio, Converter={StaticResource AspectRatioToStringConverter}}" />
+                    </StackPanel>
+
+                    <controls:Spacer Width="{StaticResource SpaceMedium}" />
+
+                    <!-- Border Width -->
+                    <StackPanel Orientation="Horizontal"
+                                ToolTip="Border Width">
+                        <Label VerticalAlignment="Center"
+                               Target="{Binding ElementName=BorderWidthNumberBox}">
+                            <iconPacks:PackIconMaterial Kind="FormatLineWeight"
+                                                        RotationAngle="90" />
+                        </Label>
+
+                        <controls:Spacer Width="{StaticResource SpaceTiny}" />
+
+                        <ui:NumberBox  VerticalAlignment="Center"
+                                       x:Name="BorderWidthNumberBox"
+                                       SpinButtonPlacementMode="Compact"
+                                       Minimum="0"
+                                       Value="{Binding BlendBorderWidth}"
+                                       PlaceholderText="border width" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Audio Volume -->
+                <Grid Grid.Column="2"
+                      Margin="{StaticResource VideoControlThickness}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal">
+                        <controls:Spacer Width="{StaticResource SpaceMedium}" />
+                        <Label VerticalAlignment="Center"
+                               Target="{Binding ElementName=VolumeSlider}"
+                               ToolTip="Volume">
+                            <iconPacks:PackIconMaterial Kind="{Binding IsMasterVolumeMuted, Converter={StaticResource BoolToMutedVolumeIconKindConverter}}" />
+
+                            <b:Interaction.Triggers>
+                                <b:EventTrigger EventName="PreviewMouseDown">
+                                    <b:InvokeCommandAction Command="{Binding VolumeIconMouseDownCommand}"
+                                                           PassEventArgsToCommand="True" />
+                                </b:EventTrigger>
+                            </b:Interaction.Triggers>
+                        </Label>
+                        <controls:Spacer Width="{StaticResource SpaceTiny}" />
+                    </StackPanel>
+
+                    <Slider Grid.Column="1"
+                            VerticalAlignment="Center"
+                            x:Name="VolumeSlider"
+                            Minimum="0.0"
+                            Maximum="1.0"
+                            TickFrequency="0.1"
+                            TickPlacement="Both"
+                            IsEnabled="{Binding IsMasterVolumeMuted, Converter={StaticResource InverseBooleanConverter}}"
+                            Value="{Binding MasterVolume}" />
+
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal">
+                        <controls:Spacer Width="{StaticResource SpaceTiny}" />
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="{Binding MasterVolume, StringFormat='{}{0:P0}'}" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

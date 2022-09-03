@@ -1,0 +1,38 @@
+﻿<Window x:Class="Narabemi.UI.Windows.VersionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:local="clr-namespace:Narabemi.UI.Windows"
+        mc:Ignorable="d"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        d:DataContext="{d:DesignInstance {x:Type local:MainWindowViewModel}}"
+        Title="{Binding VersionText}"
+        ui:WindowHelper.UseModernWindowStyle="True">
+
+    <Window.CommandBindings>
+        <CommandBinding Command="{x:Static ApplicationCommands.Close}"
+                        Executed="CloseCommandBinding_Executed"
+                        CanExecute="CloseCommandBinding_CanExecute" />
+    </Window.CommandBindings>
+    
+    <StackPanel Orientation="Vertical"
+                Margin="12">
+        <TextBlock HorizontalAlignment="Center"
+                   Text="{Binding VersionText}" />
+        <Image Source="/Assets/app.png" Width="64" Margin="12"/>
+        <ui:HyperlinkButton HorizontalAlignment="Center"
+                            Content="{Binding SiteUrl}"
+                            Command="{Binding OpenUrlCommand}"
+                            CommandParameter="{Binding SiteUrl}"
+                            Cursor="Hand" />
+        <Button HorizontalAlignment="Center"
+                Content="OK"
+                Command="{x:Static ApplicationCommands.Close}" />
+    </StackPanel>
+</Window>
