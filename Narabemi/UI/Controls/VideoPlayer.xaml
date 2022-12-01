@@ -317,6 +317,12 @@
                             Command="{Binding ReopenCommand}">
                         <iconPacks:PackIconMaterial Kind="Reload" />
                     </Button>
+                    <Button x:Name="SubtitleCycleButton"
+                            VerticalAlignment="Center"
+                            ToolTip="Change Subtitle"
+                            Command="{Binding ChangeSubtitleCommand}">
+                        <iconPacks:PackIconMaterial Kind="Subtitles" />
+                    </Button>
 
                     <local:Spacer Width="{StaticResource SpaceTiny}" />
 
@@ -328,6 +334,13 @@
                                         Command="{Binding OpenFileLocationCommand}"
                                         CommandParameter="{Binding VideoPath}"
                                         Cursor="Hand" />
+
+                    <local:Spacer Width="{StaticResource SpaceTiny}" />
+                    
+                    <TextBlock x:Name="SubTextBlock"
+                               VerticalAlignment="Center"
+                               ToolTip="{Binding SubtitlePath}"
+                               Text="{Binding SubtitlePath, Converter={StaticResource FilePathToFileNameConverter}}" />
                 </StackPanel>
 
                 <StackPanel Grid.Column="1"

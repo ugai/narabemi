@@ -56,6 +56,10 @@ namespace Narabemi.UI.Controls
         [ObservableProperty]
         private Uri? mediaSourceUri = null;
         [ObservableProperty]
+        private string? subtitlePath = null;
+        [ObservableProperty]
+        private List<string> subtitlePaths = new();
+        [ObservableProperty]
         private TimeSpan offset = TimeSpan.Zero;
         [ObservableProperty]
         private Thickness fileDropBorderWidth = new(0.0);
@@ -90,7 +94,28 @@ namespace Narabemi.UI.Controls
         partial void OnVideoPathChanged(string value)
         {
             _logger?.LogDebug("{Name}: '{Value}'", nameof(OnVideoPathChanged), value);
-            MediaSourceUri = File.Exists(value) ? new Uri(value, UriKind.Absolute) : null;
+            var sourceUri = File.Exists(value) ? new Uri(value, UriKind.Absolute) : null;
+
+            // Scan local subtitle files
+            if (sourceUri != null)
+            {
+                var videoPath = sourceUri?.LocalPath;
+                if (File.Exists(videoPath) && Path.GetDirectoryName(videoPath) is string videoDir)
+                {
+                    var name = Path.GetFileNameWithoutExtension(videoPath);
+                    SubtitlePaths.Clear();
+                    foreach (var path in Directory.GetFiles(videoDir))
+                    {
+                        if (Path.GetExtension(path).ToLower() == ".srt" &&
+                            Path.GetFileNameWithoutExtension(path).StartsWith(name))
+                            SubtitlePaths.Add(path);
+                    }
+
+                    SubtitlePath = SubtitlePaths.FirstOrDefault();
+                }
+            }
+
+            MediaSourceUri = sourceUri;
         }
 
         partial void OnMediaSourceUriChanged(Uri? value)
@@ -98,6 +123,13 @@ namespace Narabemi.UI.Controls
             _logger?.LogDebug("{Name}: '{Value}'", nameof(OnMediaSourceUriChanged), value);
             if (value != null)
                 WeakReferenceMessenger.Default.Send(new OpenVideoFileMessage(PlayerId, value));
+        }
+
+        partial void OnSubtitlePathChanged(string? value)
+        {
+            _logger?.LogDebug("{Name}: '{Value}'", nameof(OnSubtitlePathChanged), value);
+            if (value != null)
+                WeakReferenceMessenger.Default.Send(new OpenSubtitleFileMessage(PlayerId, value));
         }
 
         partial void OnLocalVolumeChanged(double value) =>
@@ -119,6 +151,23 @@ namespace Narabemi.UI.Controls
         {
             if (File.Exists(VideoPath))
                 WeakReferenceMessenger.Default.Send(new SimpleMessage(SimpleMessageType.Reopen, PlayerId));
+        }
+
+        [RelayCommand]
+        private void ChangeSubtitle()
+        {
+            if (SubtitlePaths == null || SubtitlePaths.Count == 0)
+                return;
+
+            int currentIdx = 0;
+            if (!string.IsNullOrEmpty(SubtitlePath))
+                currentIdx = SubtitlePaths.IndexOf(SubtitlePath);
+
+            int nextIdx = currentIdx + 1;
+            if (nextIdx >= subtitlePaths.Count)
+                nextIdx = 0;
+
+            SubtitlePath = subtitlePaths[nextIdx];
         }
 
         [RelayCommand]

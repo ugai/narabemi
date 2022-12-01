@@ -76,8 +76,19 @@ namespace Narabemi.Services
 
             WeakReferenceMessenger.Default.Register<MediaElementsManager, OpenVideoFileMessage>(this, static async (r, m) =>
             {
+                r._logger?.LogDebug("{Name} received: playerId={PlayerId}", nameof(OpenVideoFileMessage), m.Value.PlayerId);
                 if (r._mediaElements.TryGetValue(m.Value.PlayerId, out var me))
+                {
+                    await me.Close();
                     await me.Open(m.Value.Uri);
+                }
+            });
+
+            WeakReferenceMessenger.Default.Register<MediaElementsManager, OpenSubtitleFileMessage>(this, static async (r, m) =>
+            {
+                r._logger?.LogDebug("{Name} received: playerId={PlayerId}", nameof(OpenSubtitleFileMessage), m.Value.PlayerId);
+                if (r._mediaElements.TryGetValue(m.Value.PlayerId, out var me))
+                    await me.ChangeMedia();
             });
         }
 
@@ -87,6 +98,9 @@ namespace Narabemi.Services
             _playerViewModels[playerId] = playerViewModel;
 
             mediaElement.MediaStateChanged += (s, e) => CorrectGlobalPlaybackState();
+
+            mediaElement.MediaOpening += (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
+            mediaElement.MediaChanging += (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
         }
 
         public async ValueTask PlayAllAsync() =>
