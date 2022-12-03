@@ -2,11 +2,31 @@
 
 A side-by-side video player with a horizontal comparison slider.
 
-## Screenshot
+## Screenshots
 
-![screenshot](ss.jpg)
+![screenshot main](ss.jpg)
 
 *© Blender Foundation | [cloud.blender.org/spring](http://cloud.blender.org/spring)*
+
+### Custom Blend Shader
+
+![screenshot custom blend shader](ss_custom_shader.jpg)
+
+```hlsl
+float4 main(float2 uv : TEXCOORD) : COLOR
+{
+    float4 color0 = tex2D(input0, uv);
+    float4 color1 = tex2D(input1, uv);
+    float4 color = lerp(color0, color1, step(ratio, uv.x) * saturate(step(uv.y % 0.2, 0.1))); // stripe blend
+    return lerp(color, borderColor,
+        step(uv.x - (borderWidth / widthPx / 2.0f), ratio) *
+        step(ratio, uv.x + borderWidth / widthPx / 2.0f));
+}
+```
+
+### Comparing Subtitles
+
+![screenshot subtitles](ss_subs.jpg)
 
 ## Installation
 
