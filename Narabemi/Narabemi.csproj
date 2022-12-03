@@ -9,7 +9,7 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <Product>Narabemi</Product>
     <Authors>ugai</Authors>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <PackageIcon>app.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ugai/narabemi</RepositoryUrl>
