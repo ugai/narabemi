@@ -1,16 +1,17 @@
 # Narabemi
 
-A side-by-side video player with a horizontal comparison slider.
+Quick side-by-side video comparison tool.
 
 ## Screenshots
 
-![screenshot main](ss.jpg)
+![screenshot main2](screenshots/ss2.gif?raw=true)
+![screenshot main1](screenshots/ss.jpg?raw=true)
 
-*© Blender Foundation | [cloud.blender.org/spring](http://cloud.blender.org/spring)*
+*© Blender Foundation | [cloud.blender.org/spring](http://cloud.blender.org/spring), [studio.blender.org/films/big-buck-bunny](https://studio.blender.org/films/big-buck-bunny)*
 
 ### Custom Blend Shader
 
-![screenshot custom blend shader](ss_custom_shader.jpg)
+![screenshot custom blend shader](screenshots/ss_custom_shader.jpg?raw=true)
 
 ```hlsl
 float4 main(float2 uv : TEXCOORD) : COLOR
@@ -26,7 +27,7 @@ float4 main(float2 uv : TEXCOORD) : COLOR
 
 ### Comparing Subtitles
 
-![screenshot subtitles](ss_subs.jpg)
+![screenshot subtitles](screenshots/ss_subs.jpg?raw=true)
 
 ## Installation
 
@@ -45,7 +46,7 @@ Or just run the `download_ffmpeg.bat` file.
 
 - Video playback synchronization is not frame-accurate, not perfect.
 
-## Better Alternatives
+## Alternatives
 
 - [Image Comparison & Analysis Tool (ICAT)](https://www.nvidia.com/en-us/geforce/technologies/icat/)
 - [video-compare](https://github.com/pixop/video-compare)
