@@ -364,3 +364,9 @@ FodyWeavers.xsd
 
 ffmpeg/
 *.zip
+
+# IDE
+.idea/
+
+# Claude Code local settings
+.claude/settings.local.json
