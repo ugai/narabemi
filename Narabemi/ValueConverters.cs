@@ -55,6 +55,12 @@ namespace Narabemi
     {
         public override bool TryConvert(Duration from, out double result)
         {
+            if (!from.HasTimeSpan)
+            {
+                result = 0;
+                return false;
+            }
+
             result = from.TimeSpan.TotalSeconds;
             return true;
         }
