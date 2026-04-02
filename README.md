@@ -38,9 +38,31 @@ float4 main(float2 uv : TEXCOORD) : COLOR
 ### Set FFmpeg path
 
 1. [Download](https://ffmpeg.org/download.html) the FFmpeg 4.4 binary and put it somewhere.
-2. Edit the `AppSettings.json` file to set the path to FFmpeg's `bin` directory.
+2. Edit the `appsettings.json` file to set the path to FFmpeg's `bin` directory.
 
 Or just run the `download_ffmpeg.bat` file.
+
+## Building from source
+
+### Prerequisites
+
+- [.NET 6.0 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/6.0) — required to build and run the application
+- **FXC shader compiler** — required for the PreBuild step that compiles HLSL pixel shaders to `.fxc` bytecode
+  - Included with the [Windows SDK](https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/) (install the "Windows SDK for Desktop C++ x86 Apps" or "Windows SDK for Desktop C++ amd64 Apps" component)
+  - Alternatively available via the [Microsoft.Windows.SDK.CPP NuGet package](https://www.nuget.org/packages/Microsoft.Windows.SDK.CPP)
+
+### Steps
+
+```bash
+# 1. Download FFmpeg binaries (places them at ./ffmpeg/bin by default)
+./download_ffmpeg.bat
+
+# 2. Build
+dotnet build Narabemi/Narabemi.csproj
+
+# 3. Run
+dotnet run --project Narabemi/Narabemi.csproj
+```
 
 ## Limitations
 
