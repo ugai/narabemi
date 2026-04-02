@@ -158,20 +158,26 @@ namespace Narabemi.UI.Windows
         partial void OnMainPlayerIndexChanged(int value) =>
             _mediaElementsManager.MainPlayerId = value;
 
-        partial void OnGlobalPlaybackStateChanged(GlobalPlaybackState value)
+        async partial void OnGlobalPlaybackStateChanged(GlobalPlaybackState value)
         {
             switch (value)
             {
-                case GlobalPlaybackState.Play: _mediaElementsManager?.PlayAllAsync(); break;
-                case GlobalPlaybackState.Pause: _mediaElementsManager?.PauseAllAsync(); break;
-                case GlobalPlaybackState.Stop: _mediaElementsManager?.StopAllAsync(); break;
+                case GlobalPlaybackState.Play:
+                    if (_mediaElementsManager != null) await _mediaElementsManager.PlayAllAsync();
+                    break;
+                case GlobalPlaybackState.Pause:
+                    if (_mediaElementsManager != null) await _mediaElementsManager.PauseAllAsync();
+                    break;
+                case GlobalPlaybackState.Stop:
+                    if (_mediaElementsManager != null) await _mediaElementsManager.StopAllAsync();
+                    break;
             }
 
-            if (AutoSync && value == GlobalPlaybackState.Pause)
-                _mediaElementsManager?.SimpleSync();
+            if (AutoSync && value == GlobalPlaybackState.Pause && _mediaElementsManager != null)
+                await _mediaElementsManager.SimpleSync();
         }
 
-        partial void OnAutoSyncChanged(bool value)
+        async partial void OnAutoSyncChanged(bool value)
         {
             _mediaElementsManager.AutoSync = value;
 
@@ -182,8 +188,8 @@ namespace Narabemi.UI.Windows
             else
             {
                 _autoSyncTimer.Stop();
-                if (GlobalPlaybackState == GlobalPlaybackState.Pause)
-                    _mediaElementsManager?.SimpleSync();
+                if (GlobalPlaybackState == GlobalPlaybackState.Pause && _mediaElementsManager != null)
+                    await _mediaElementsManager.SimpleSync();
 
                 _mediaElementsManager?.ResetAllSpeed();
             }
