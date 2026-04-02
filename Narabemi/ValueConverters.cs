@@ -70,11 +70,18 @@ namespace Narabemi
 
         public override bool TryConvertBack(string to, out Color result)
         {
-            object colorObject = ColorConverter.ConvertFromString(to);
-            if (colorObject is Color color)
+            try
             {
-                result = color;
-                return true;
+                object colorObject = ColorConverter.ConvertFromString(to);
+                if (colorObject is Color color)
+                {
+                    result = color;
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+                // Invalid color string — fall through to return false
             }
 
             result = Colors.White;
