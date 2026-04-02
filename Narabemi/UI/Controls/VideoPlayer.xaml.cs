@@ -216,14 +216,8 @@ namespace Narabemi.UI.Controls
         }
 
         [RelayCommand]
-        private void VolumeIconMouseDown(MouseEventArgs e)
-        {
-            if (e.LeftButton == MouseButtonState.Pressed)
-            {
-                IsLocalVolumeMuted = !IsLocalVolumeMuted;
-                e.Handled = true;
-            }
-        }
+        private void VolumeIconMouseDown(MouseEventArgs e) =>
+            Utils.ToggleMuteOnLeftClick(e, IsLocalVolumeMuted, v => IsLocalVolumeMuted = v);
 
         [RelayCommand]
         private void DragEnter(DragEventArgs e)
