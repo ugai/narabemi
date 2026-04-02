@@ -254,10 +254,13 @@ namespace Narabemi.UI.Windows
         private static void ShowVersion()
         {
             var mainWindow = App.Services?.GetRequiredService<MainWindow>();
-            var versionWindow = App.Services?.GetRequiredService<VersionWindow>();
-            if (versionWindow != null)
+            var viewModel = App.Services?.GetRequiredService<VersionWindowViewModel>();
+            if (viewModel != null)
             {
-                versionWindow.Owner = mainWindow;
+                var versionWindow = new VersionWindow(viewModel)
+                {
+                    Owner = mainWindow
+                };
                 versionWindow.ShowDialog();
             }
         }
