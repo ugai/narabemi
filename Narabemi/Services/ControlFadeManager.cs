@@ -66,15 +66,26 @@ namespace Narabemi.Services
             Storyboard.SetTarget(hideAnim, target);
         }
 
-        private void OnTimer(object? sender, ElapsedEventArgs e)
+        private async void OnTimer(object? sender, ElapsedEventArgs e)
         {
             _logger.LogTrace("{name}: {value}", nameof(OnTimer), e.SignalTime);
 
             if (IsVisible)
             {
                 var elapsed = e.SignalTime.ToUniversalTime() - _lastMouseMoveTime;
-                if (elapsed > _hideStartDuration && _mouseHoverTargets.All(v => !v.IsMouseOver))
-                    WeakReferenceMessenger.Default.Send(new ControlsVisibilityMessage(false));
+                if (elapsed > _hideStartDuration)
+                {
+                    // IsMouseOver is a WPF DependencyProperty and must be read on the UI thread.
+                    var isHovered = false;
+                    await UIThread.TryInvokeAsync(() =>
+                    {
+                        isHovered = _mouseHoverTargets.Any(v => v.IsMouseOver);
+                        return ValueTask.CompletedTask;
+                    });
+
+                    if (!isHovered)
+                        WeakReferenceMessenger.Default.Send(new ControlsVisibilityMessage(false));
+                }
             }
             else
             {
@@ -84,7 +95,7 @@ namespace Narabemi.Services
 
         public void Receive(ControlsMouseMoveMessage message)
         {
-            _logger.LogTrace("{name}: {value}", nameof(ControlsMouseMoveMessage));
+            _logger.LogTrace("{name}", nameof(ControlsMouseMoveMessage));
 
             _lastMouseMoveTime = DateTime.UtcNow;
             if (!IsVisible)
