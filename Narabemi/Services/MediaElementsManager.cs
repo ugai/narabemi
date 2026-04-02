@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
@@ -15,6 +16,7 @@ namespace Narabemi.Services
     {
         public int MainPlayerId { get; set; }
         public bool AutoSync { get; set; }
+        public bool Loop { get; set; }
         public MainWindowViewModel? MainWindowViewModel { get; set; } = null;
 
         private readonly Dictionary<int, Unosquare.FFME.MediaElement> _mediaElements = new();
@@ -101,6 +103,26 @@ namespace Narabemi.Services
 
             mediaElement.MediaOpening += (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
             mediaElement.MediaChanging += (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
+
+            mediaElement.MediaEnded += async (s, e) =>
+            {
+                if (!Loop)
+                    return;
+
+                if (!Monitor.TryEnter(_loopLock))
+                    return;
+
+                try
+                {
+                    _logger.LogDebug("Loop: restarting playback (triggered by player {PlayerId})", playerId);
+                    await SeekAllAsync(TimeSpan.Zero);
+                    await PlayAllAsync();
+                }
+                finally
+                {
+                    Monitor.Exit(_loopLock);
+                }
+            };
         }
 
         public async ValueTask PlayAllAsync() =>
