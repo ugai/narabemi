@@ -84,7 +84,7 @@ namespace Narabemi.Services
 
         public void Receive(ControlsMouseMoveMessage message)
         {
-            _logger.LogTrace("{name}: {value}", nameof(ControlsMouseMoveMessage));
+            _logger.LogTrace("{name}", nameof(ControlsMouseMoveMessage));
 
             _lastMouseMoveTime = DateTime.UtcNow;
             if (!IsVisible)
@@ -113,10 +113,9 @@ namespace Narabemi.Services
                         _mouseMoveTargets.ForEach(v => v.Cursor = Cursors.None);
                     }
 
+                    IsVisible = newValue;
                     return ValueTask.CompletedTask;
                 });
-
-                IsVisible = newValue;
             }
         }
     }
