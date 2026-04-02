@@ -246,8 +246,8 @@ namespace Narabemi.UI.Windows
             }
         }
 
-        [RelayCommand] private void SetLayoutBothViewt() => SetLayout(1.0, 2.0);
-        [RelayCommand] private void SetLayouSideBySideView() => SetLayout(1.0, 0.0);
+        [RelayCommand] private void SetLayoutBothView() => SetLayout(1.0, 2.0);
+        [RelayCommand] private void SetLayoutSideBySideView() => SetLayout(1.0, 0.0);
         [RelayCommand] private void SetLayoutComparisonSliderView() => SetLayout(0.0, 1.0);
 
         [RelayCommand]
