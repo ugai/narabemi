@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -23,6 +25,40 @@ namespace Narabemi
         public static IServiceProvider? Services { get; private set; }
 
         private IHost? _host;
+
+        public App()
+        {
+            DispatcherUnhandledException += OnDispatcherUnhandledException;
+            AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        }
+
+        private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+        {
+            var logger = Services?.GetService<ILogger<App>>();
+            logger?.LogCritical(e.Exception, "Unhandled exception on UI thread");
+            MessageBox.Show(
+                $"An unexpected error occurred:\n\n{e.Exception.Message}\n\nThe application will now close.",
+                $"{ProductName} — Unexpected Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            e.Handled = true;
+            Shutdown(1);
+        }
+
+        private static void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            var logger = Services?.GetService<ILogger<App>>();
+            var ex = e.ExceptionObject as Exception;
+            logger?.LogCritical(ex, "Unhandled exception on background thread (IsTerminating={IsTerminating})", e.IsTerminating);
+        }
+
+        private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            var logger = Services?.GetService<ILogger<App>>();
+            logger?.LogError(e.Exception, "Unobserved task exception");
+            e.SetObserved();
+        }
 
         private static IHostBuilder CreateHostBuilder(string[] args) =>
             Host.CreateDefaultBuilder(args)
