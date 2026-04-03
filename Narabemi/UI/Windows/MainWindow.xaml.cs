@@ -6,13 +6,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.IO;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Narabemi.Models;
 using Narabemi.Services;
@@ -117,6 +117,7 @@ namespace Narabemi.UI.Windows
         private readonly Settings.AppStatesService _appState;
         private readonly MediaElementsManager _mediaElementsManager;
         private readonly ControlFadeManager _controlFadeManager;
+        private readonly VersionWindowViewModel _versionWindowViewModel;
         private readonly object _lockObj = new();
         private readonly DispatcherTimer _autoSyncTimer;
 
@@ -125,13 +126,15 @@ namespace Narabemi.UI.Windows
             IConfiguration conf,
             Settings.AppStatesService appState,
             MediaElementsManager mediaElementsManager,
-            ControlFadeManager controlFadeManager)
+            ControlFadeManager controlFadeManager,
+            VersionWindowViewModel versionWindowViewModel)
         {
             _logger = logger;
             _appSettings = conf.Get<Settings.AppSettings>();
             _appState = appState;
             _mediaElementsManager = mediaElementsManager;
             _controlFadeManager = controlFadeManager;
+            _versionWindowViewModel = versionWindowViewModel;
 
             MainPlayerIndex = 0;
 
@@ -161,20 +164,26 @@ namespace Narabemi.UI.Windows
         partial void OnLoopChanged(bool value) =>
             _mediaElementsManager.Loop = value;
 
-        partial void OnGlobalPlaybackStateChanged(GlobalPlaybackState value)
+        async partial void OnGlobalPlaybackStateChanged(GlobalPlaybackState value)
         {
             switch (value)
             {
-                case GlobalPlaybackState.Play: _mediaElementsManager?.PlayAllAsync(); break;
-                case GlobalPlaybackState.Pause: _mediaElementsManager?.PauseAllAsync(); break;
-                case GlobalPlaybackState.Stop: _mediaElementsManager?.StopAllAsync(); break;
+                case GlobalPlaybackState.Play:
+                    if (_mediaElementsManager != null) await _mediaElementsManager.PlayAllAsync();
+                    break;
+                case GlobalPlaybackState.Pause:
+                    if (_mediaElementsManager != null) await _mediaElementsManager.PauseAllAsync();
+                    break;
+                case GlobalPlaybackState.Stop:
+                    if (_mediaElementsManager != null) await _mediaElementsManager.StopAllAsync();
+                    break;
             }
 
-            if (AutoSync && value == GlobalPlaybackState.Pause)
-                _mediaElementsManager?.SimpleSync();
+            if (AutoSync && value == GlobalPlaybackState.Pause && _mediaElementsManager != null)
+                await _mediaElementsManager.SimpleSync();
         }
 
-        partial void OnAutoSyncChanged(bool value)
+        async partial void OnAutoSyncChanged(bool value)
         {
             _mediaElementsManager.AutoSync = value;
 
@@ -185,8 +194,8 @@ namespace Narabemi.UI.Windows
             else
             {
                 _autoSyncTimer.Stop();
-                if (GlobalPlaybackState == GlobalPlaybackState.Pause)
-                    _mediaElementsManager?.SimpleSync();
+                if (GlobalPlaybackState == GlobalPlaybackState.Pause && _mediaElementsManager != null)
+                    await _mediaElementsManager.SimpleSync();
 
                 _mediaElementsManager?.ResetAllSpeed();
             }
@@ -207,7 +216,7 @@ namespace Narabemi.UI.Windows
         [RelayCommand]
         private void Loaded()
         {
-            ShaderFilePath = _appSettings.ShaderPath;
+            ShaderFilePath = Path.GetFullPath(_appSettings.ShaderPath, AppContext.BaseDirectory);
             _appState.ApplyTo(this);
         }
 
@@ -248,18 +257,13 @@ namespace Narabemi.UI.Windows
         [RelayCommand] private void SetLayoutComparisonSliderView() => SetLayout(0.0, 1.0);
 
         [RelayCommand]
-        private static void ShowVersion()
+        private void ShowVersion()
         {
-            var mainWindow = App.Services?.GetRequiredService<MainWindow>();
-            var viewModel = App.Services?.GetRequiredService<VersionWindowViewModel>();
-            if (viewModel != null)
+            var versionWindow = new VersionWindow(_versionWindowViewModel)
             {
-                var versionWindow = new VersionWindow(viewModel)
-                {
-                    Owner = mainWindow
-                };
-                versionWindow.ShowDialog();
-            }
+                Owner = Application.Current.MainWindow
+            };
+            versionWindow.ShowDialog();
         }
 
         private void SetLayout(double sideBySideViewHeight, double sliderComparisonViewHeight)
