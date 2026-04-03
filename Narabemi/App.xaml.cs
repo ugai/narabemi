@@ -58,26 +58,39 @@ namespace Narabemi
         {
             base.OnStartup(e);
 
-            _host = CreateHostBuilder(e.Args).Build();
-            Services = _host.Services;
+            try
+            {
+                _host = CreateHostBuilder(e.Args).Build();
+                Services = _host.Services;
 
-            var logger = Services.GetRequiredService<ILogger<App>>();
-            logger.LogInformation("{ProductName} v{Version}", ProductName, Version);
+                var logger = Services.GetRequiredService<ILogger<App>>();
+                logger.LogInformation("{ProductName} v{Version}", ProductName, Version);
 
-            var config = Services.GetRequiredService<IConfiguration>();
-            var appSettings = config.Get<Settings.AppSettings>();
-            var appStateManager = Services.GetRequiredService<Settings.AppStatesService>();
-            appStateManager.LoadFile();
+                var config = Services.GetRequiredService<IConfiguration>();
+                var appSettings = config.Get<Settings.AppSettings>()
+                    ?? throw new InvalidOperationException("Failed to load application settings from appsettings.json.");
+                var appStateManager = Services.GetRequiredService<Settings.AppStatesService>();
+                appStateManager.LoadFile();
 
-            Unosquare.FFME.Library.FFmpegDirectory = appSettings.FFmpegDirectory;
-            logger.LogInformation("{Name}: '{FFmpegDirectory}'", nameof(appSettings.FFmpegDirectory), appSettings.FFmpegDirectory);
+                Unosquare.FFME.Library.FFmpegDirectory = appSettings.FFmpegDirectory;
+                logger.LogInformation("{Name}: '{FFmpegDirectory}'", nameof(appSettings.FFmpegDirectory), appSettings.FFmpegDirectory);
 
-            // Start Generic Host
-            await _host.StartAsync();
+                // Start Generic Host
+                await _host.StartAsync();
 
-            // Start WPF MainWindow
-            MainWindow = Services.GetRequiredService<MainWindow>();
-            MainWindow.Show();
+                // Start WPF MainWindow
+                MainWindow = Services.GetRequiredService<MainWindow>();
+                MainWindow.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"{ProductName} failed to start.\n\n{ex.Message}",
+                    ProductName,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                Current.Shutdown(1);
+            }
         }
 
         protected override async void OnExit(ExitEventArgs e)
