@@ -1,6 +1,6 @@
-set DOWNLOADED_FILENAME=ffmpeg-n4.4-latest-win64-lgpl-shared-4.4.zip
+set DOWNLOADED_FILENAME=ffmpeg-4.4.1-full_build-shared.zip
 set DOWNLOADED_FILENAME_NOEXT=%DOWNLOADED_FILENAME:~0,-4%
-set DOWNLOAD_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/%DOWNLOADED_FILENAME%
+set DOWNLOAD_URL=https://github.com/GyanD/codexffmpeg/releases/download/4.4.1/%DOWNLOADED_FILENAME%
 set DEST_NAME=ffmpeg
 
 echo download: "%DOWNLOAD_URL%"
