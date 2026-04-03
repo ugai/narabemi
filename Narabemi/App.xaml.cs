@@ -64,7 +64,7 @@ namespace Narabemi
             Host.CreateDefaultBuilder(args)
                 .ConfigureAppConfiguration((context, appConfiguration) =>
                 {
-                    appConfiguration.SetBasePath(context.HostingEnvironment.ContentRootPath);
+                    appConfiguration.SetBasePath(AppContext.BaseDirectory);
                     appConfiguration.AddJsonFile("appsettings.json", false);
                 })
                 .ConfigureLogging(logging =>
