@@ -70,7 +70,7 @@ namespace Narabemi.UI.Windows
         [ObservableProperty]
         private GlobalPlaybackState globalPlaybackState = GlobalPlaybackState.Init;
         [ObservableProperty]
-        private bool loop; // TODO: loop is hard.
+        private bool loop;
         [ObservableProperty]
         private bool autoSync;
         [ObservableProperty]
@@ -157,6 +157,9 @@ namespace Narabemi.UI.Windows
 
         partial void OnMainPlayerIndexChanged(int value) =>
             _mediaElementsManager.MainPlayerId = value;
+
+        partial void OnLoopChanged(bool value) =>
+            _mediaElementsManager.Loop = value;
 
         partial void OnGlobalPlaybackStateChanged(GlobalPlaybackState value)
         {

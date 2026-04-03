@@ -215,14 +215,11 @@
                             <iconPacks:PackIconMaterial Kind="Stop" />
                         </Button>
 
-                        <!-- TODO: loop is hard. -->
-                        <!--
                         <ToggleButton VerticalAlignment="Center"
                                       ToolTip="Loop"
                                       IsChecked="{Binding Loop}">
                             <iconPacks:PackIconMaterial Kind="Repeat" />
                         </ToggleButton>
-                        -->
                     </StackPanel>
 
                     <controls:Spacer Width="{StaticResource SpaceMedium}" />
