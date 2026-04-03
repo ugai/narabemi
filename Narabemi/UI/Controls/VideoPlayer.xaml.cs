@@ -177,7 +177,10 @@ namespace Narabemi.UI.Controls
             {
                 // var displayAspectRatio = streamInfo.DisplayAspectRatio; // can't get correct DAR
                 var frameAspectRatio = Utils.GetAspectRatio(streamInfo.PixelWidth, streamInfo.PixelHeight);
-                var pixelAspectRatio = new AspectRatio(streamInfo.SampleAspectRatio.num, streamInfo.SampleAspectRatio.den);
+                var sar = streamInfo.SampleAspectRatio;
+                var pixelAspectRatio = sar.den != 0
+                    ? new AspectRatio(sar.num, sar.den)
+                    : AspectRatios.Ratio_1_1;
 
                 DisplayAspectRatio = new(frameAspectRatio.Numerator * pixelAspectRatio.Numerator,
                                          frameAspectRatio.Denominator * pixelAspectRatio.Denominator);
