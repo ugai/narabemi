@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -19,10 +20,9 @@ namespace Narabemi.Services
         public bool Loop { get; set; }
         public MainWindowViewModel? MainWindowViewModel { get; set; } = null;
 
-        private readonly Dictionary<int, Unosquare.FFME.MediaElement> _mediaElements = new();
-        private readonly Dictionary<int, VideoPlayerViewModel> _playerViewModels = new();
+        private readonly ConcurrentDictionary<int, Unosquare.FFME.MediaElement> _mediaElements = new();
+        private readonly ConcurrentDictionary<int, VideoPlayerViewModel> _playerViewModels = new();
         private readonly ILogger _logger;
-        private readonly object _loopLock = new();
 
         public MediaElementsManager(ILogger<MediaElementsManager> logger)
         {
