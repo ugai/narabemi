@@ -15,7 +15,7 @@ using Microsoft.Extensions.Logging;
 namespace Narabemi.Services
 {
     [INotifyPropertyChanged]
-    public partial class ControlFadeManager : IRecipient<ControlsMouseMoveMessage>, IRecipient<ControlsVisibilityMessage>
+    public partial class ControlFadeManager : IDisposable, IRecipient<ControlsMouseMoveMessage>, IRecipient<ControlsVisibilityMessage>
     {
         public Storyboard ShowControlStoryboard { get; } = new();
         public Storyboard HideControlStoryboard { get; } = new();
@@ -128,6 +128,12 @@ namespace Narabemi.Services
                     return ValueTask.CompletedTask;
                 });
             }
+        }
+
+        public void Dispose()
+        {
+            _hideTimer.Stop();
+            _hideTimer.Dispose();
         }
     }
 
