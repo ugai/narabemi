@@ -124,10 +124,9 @@ namespace Narabemi.Services
                         _mouseMoveTargets.ForEach(v => v.Cursor = Cursors.None);
                     }
 
+                    IsVisible = newValue;
                     return ValueTask.CompletedTask;
                 });
-
-                IsVisible = newValue;
             }
         }
     }
