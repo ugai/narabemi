@@ -28,67 +28,88 @@ namespace Narabemi.Services
 
             WeakReferenceMessenger.Default.Register<MediaElementsManager, SimpleMessage>(this, static async (r, m) =>
             {
-                var playerId = m.Value.PlayerId;
-                var targetMe = (playerId.HasValue &&
-                    r._mediaElements.TryGetValue(playerId.Value, out var me)) ? me : null;
-
-                r._logger?.LogDebug("{Name} received: type={MessageType}, playerId={PlayerId}", nameof(SimpleMessage), m.Value.MessageType, m.Value.PlayerId);
-
-                switch (m.Value.MessageType)
+                try
                 {
-                    case SimpleMessageType.Play:
-                        if (targetMe != null)
-                            await targetMe.Play();
-                        break;
-                    case SimpleMessageType.Reopen:
-                        if (targetMe != null)
-                        {
-                            var source = targetMe.Source;
-                            var position = targetMe.Position;
-                            if (await targetMe.Close() && await targetMe.Open(source))
+                    var playerId = m.Value.PlayerId;
+                    var targetMe = (playerId.HasValue &&
+                        r._mediaElements.TryGetValue(playerId.Value, out var me)) ? me : null;
+
+                    r._logger?.LogDebug("{Name} received: type={MessageType}, playerId={PlayerId}", nameof(SimpleMessage), m.Value.MessageType, m.Value.PlayerId);
+
+                    switch (m.Value.MessageType)
+                    {
+                        case SimpleMessageType.Play:
+                            if (targetMe != null)
+                                await targetMe.Play();
+                            break;
+                        case SimpleMessageType.Reopen:
+                            if (targetMe != null)
                             {
-                                if (r.MainWindowViewModel?.GlobalPlaybackState == GlobalPlaybackState.Play)
+                                var source = targetMe.Source;
+                                var position = targetMe.Position;
+                                if (await targetMe.Close() && await targetMe.Open(source))
                                 {
-                                    await targetMe.Play();
+                                    if (r.MainWindowViewModel?.GlobalPlaybackState == GlobalPlaybackState.Play)
+                                    {
+                                        await targetMe.Play();
+                                    }
+                                    targetMe.Position = position;
                                 }
-                                targetMe.Position = position;
                             }
-                        }
-                        break;
-                    case SimpleMessageType.FrameForward:
-                        if (targetMe != null)
-                        {
-                            await targetMe.StepForward();
-                            if (r.AutoSync)
-                                await r.SimpleSync();
-                        }
-                        break;
-                    case SimpleMessageType.FrameBackward:
-                        if (targetMe != null)
-                        {
-                            await targetMe.StepBackward();
-                            if (r.AutoSync)
-                                await r.SimpleSync();
-                        }
-                        break;
+                            break;
+                        case SimpleMessageType.FrameForward:
+                            if (targetMe != null)
+                            {
+                                await targetMe.StepForward();
+                                if (r.AutoSync)
+                                    await r.SimpleSync();
+                            }
+                            break;
+                        case SimpleMessageType.FrameBackward:
+                            if (targetMe != null)
+                            {
+                                await targetMe.StepBackward();
+                                if (r.AutoSync)
+                                    await r.SimpleSync();
+                            }
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    r._logger?.LogError(ex, "{Name} handler threw an unhandled exception: type={MessageType}, playerId={PlayerId}", nameof(SimpleMessage), m.Value.MessageType, m.Value.PlayerId);
                 }
             });
 
             WeakReferenceMessenger.Default.Register<MediaElementsManager, OpenVideoFileMessage>(this, static async (r, m) =>
             {
-                r._logger?.LogDebug("{Name} received: playerId={PlayerId}", nameof(OpenVideoFileMessage), m.Value.PlayerId);
-                if (r._mediaElements.TryGetValue(m.Value.PlayerId, out var me))
+                try
                 {
-                    await me.Close();
-                    await me.Open(m.Value.Uri);
+                    r._logger?.LogDebug("{Name} received: playerId={PlayerId}", nameof(OpenVideoFileMessage), m.Value.PlayerId);
+                    if (r._mediaElements.TryGetValue(m.Value.PlayerId, out var me))
+                    {
+                        await me.Close();
+                        await me.Open(m.Value.Uri);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    r._logger?.LogError(ex, "{Name} handler threw an unhandled exception: playerId={PlayerId}", nameof(OpenVideoFileMessage), m.Value.PlayerId);
                 }
             });
 
             WeakReferenceMessenger.Default.Register<MediaElementsManager, OpenSubtitleFileMessage>(this, static async (r, m) =>
             {
-                r._logger?.LogDebug("{Name} received: playerId={PlayerId}", nameof(OpenSubtitleFileMessage), m.Value.PlayerId);
-                if (r._mediaElements.TryGetValue(m.Value.PlayerId, out var me))
-                    await me.ChangeMedia();
+                try
+                {
+                    r._logger?.LogDebug("{Name} received: playerId={PlayerId}", nameof(OpenSubtitleFileMessage), m.Value.PlayerId);
+                    if (r._mediaElements.TryGetValue(m.Value.PlayerId, out var me))
+                        await me.ChangeMedia();
+                }
+                catch (Exception ex)
+                {
+                    r._logger?.LogError(ex, "{Name} handler threw an unhandled exception: playerId={PlayerId}", nameof(OpenSubtitleFileMessage), m.Value.PlayerId);
+                }
             });
         }
 
