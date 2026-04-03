@@ -98,11 +98,16 @@ namespace Narabemi
         {
             if (_host != null)
             {
-                var appStateManager = Services?.GetRequiredService<Settings.AppStatesService>();
-                appStateManager?.SaveFile();
-
-                await _host.StopAsync();
-                _host.Dispose();
+                try
+                {
+                    var appStateManager = Services?.GetRequiredService<Settings.AppStatesService>();
+                    appStateManager?.SaveFile();
+                }
+                finally
+                {
+                    await _host.StopAsync();
+                    _host.Dispose();
+                }
             }
 
             base.OnExit(e);
