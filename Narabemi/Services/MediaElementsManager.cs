@@ -25,7 +25,7 @@ namespace Narabemi.Services
         private readonly ConcurrentDictionary<int, EventHandler<MediaStateChangedEventArgs>> _mediaStateChangedHandlers = new();
         private readonly ConcurrentDictionary<int, EventHandler<MediaOpeningEventArgs>> _mediaOpeningHandlers = new();
         private readonly ConcurrentDictionary<int, EventHandler<MediaOpeningEventArgs>> _mediaChangingHandlers = new();
-        private readonly ConcurrentDictionary<int, EventHandler<EventArgs>> _mediaEndedHandlers = new();
+        private readonly ConcurrentDictionary<int, EventHandler> _mediaEndedHandlers = new();
         private readonly object _loopLock = new();
         private readonly ILogger _logger;
 
@@ -129,7 +129,7 @@ namespace Narabemi.Services
             EventHandler<MediaOpeningEventArgs> mediaOpeningHandler = (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
             EventHandler<MediaOpeningEventArgs> mediaChangingHandler = (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
 
-            EventHandler<EventArgs> mediaEndedHandler = async (s, e) =>
+            EventHandler mediaEndedHandler = async (s, e) =>
             {
                 if (!Loop)
                     return;
