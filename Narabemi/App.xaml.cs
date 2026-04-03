@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
@@ -108,7 +109,7 @@ namespace Narabemi
                 var appStateManager = Services.GetRequiredService<Settings.AppStatesService>();
                 appStateManager.LoadFile();
 
-                Unosquare.FFME.Library.FFmpegDirectory = appSettings.FFmpegDirectory;
+                Unosquare.FFME.Library.FFmpegDirectory = Path.GetFullPath(appSettings.FFmpegDirectory, AppContext.BaseDirectory);
                 logger.LogInformation("{Name}: '{FFmpegDirectory}'", nameof(appSettings.FFmpegDirectory), appSettings.FFmpegDirectory);
 
                 // Start Generic Host

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.IO;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -215,7 +216,7 @@ namespace Narabemi.UI.Windows
         [RelayCommand]
         private void Loaded()
         {
-            ShaderFilePath = _appSettings.ShaderPath;
+            ShaderFilePath = Path.GetFullPath(_appSettings.ShaderPath, AppContext.BaseDirectory);
             _appState.ApplyTo(this);
         }
 
