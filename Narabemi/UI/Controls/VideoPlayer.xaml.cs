@@ -26,22 +26,15 @@ namespace Narabemi.UI.Controls
         public Grid Grid { get => VideoGrid; }
 
         private VideoPlayerViewModel? _viewModel;
-#pragma warning disable IDE0052 // Remove unread private member
-        private ILogger? _logger;
-#pragma warning restore IDE0052 // Remove unread private member
 
         public VideoPlayer()
         {
             InitializeComponent();
         }
 
-        public void LateInit(
-            VideoPlayerViewModel viewModel,
-            ILogger logger)
+        public void LateInit(VideoPlayerViewModel viewModel)
         {
             _viewModel = viewModel;
-            _logger = logger;
-
             DataContext = _viewModel;
         }
     }
