@@ -19,6 +19,9 @@ namespace Narabemi.Services
 
         private readonly Dictionary<int, Unosquare.FFME.MediaElement> _mediaElements = new();
         private readonly Dictionary<int, VideoPlayerViewModel> _playerViewModels = new();
+        private readonly Dictionary<int, EventHandler<MediaStateChangedEventArgs>> _mediaStateChangedHandlers = new();
+        private readonly Dictionary<int, EventHandler<MediaOpeningEventArgs>> _mediaOpeningHandlers = new();
+        private readonly Dictionary<int, EventHandler<MediaOpeningEventArgs>> _mediaChangingHandlers = new();
         private readonly ILogger _logger;
         private readonly object _loopLock = new();
 
@@ -97,10 +100,38 @@ namespace Narabemi.Services
             _mediaElements[playerId] = mediaElement;
             _playerViewModels[playerId] = playerViewModel;
 
-            mediaElement.MediaStateChanged += (s, e) => CorrectGlobalPlaybackState();
+            EventHandler<MediaStateChangedEventArgs> mediaStateChangedHandler = (s, e) => CorrectGlobalPlaybackState();
+            EventHandler<MediaOpeningEventArgs> mediaOpeningHandler = (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
+            EventHandler<MediaOpeningEventArgs> mediaChangingHandler = (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
 
-            mediaElement.MediaOpening += (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
-            mediaElement.MediaChanging += (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
+            _mediaStateChangedHandlers[playerId] = mediaStateChangedHandler;
+            _mediaOpeningHandlers[playerId] = mediaOpeningHandler;
+            _mediaChangingHandlers[playerId] = mediaChangingHandler;
+
+            mediaElement.MediaStateChanged += mediaStateChangedHandler;
+            mediaElement.MediaOpening += mediaOpeningHandler;
+            mediaElement.MediaChanging += mediaChangingHandler;
+        }
+
+        public void Unregister(int playerId)
+        {
+            if (_mediaElements.TryGetValue(playerId, out var mediaElement))
+            {
+                if (_mediaStateChangedHandlers.TryGetValue(playerId, out var mediaStateChangedHandler))
+                    mediaElement.MediaStateChanged -= mediaStateChangedHandler;
+
+                if (_mediaOpeningHandlers.TryGetValue(playerId, out var mediaOpeningHandler))
+                    mediaElement.MediaOpening -= mediaOpeningHandler;
+
+                if (_mediaChangingHandlers.TryGetValue(playerId, out var mediaChangingHandler))
+                    mediaElement.MediaChanging -= mediaChangingHandler;
+            }
+
+            _mediaElements.Remove(playerId);
+            _playerViewModels.Remove(playerId);
+            _mediaStateChangedHandlers.Remove(playerId);
+            _mediaOpeningHandlers.Remove(playerId);
+            _mediaChangingHandlers.Remove(playerId);
         }
 
         public async ValueTask PlayAllAsync() =>
