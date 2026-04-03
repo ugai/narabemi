@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Diagnostics;
+using Microsoft.Extensions.Logging;
 using Narabemi.UI.Windows;
 
 namespace Narabemi.Settings
@@ -22,17 +23,35 @@ namespace Narabemi.Settings
             WriteIndented = true,
         };
 
+        private readonly ILogger<AppStatesService> _logger;
+
         public AppStates? Current { get; private set; }
 
-        public AppStatesService()
+        public AppStatesService(ILogger<AppStatesService> logger)
         {
+            _logger = logger;
             _opt.Converters.Add(new ColorJsonConverter());
         }
 
         public void LoadFile()
         {
-            var jsonText = File.ReadAllText(FileName);
-            Current = JsonSerializer.Deserialize<AppStates>(jsonText, _opt);
+            if (!File.Exists(FileName))
+            {
+                _logger.LogWarning("{FileName} not found; using default {TypeName}.", FileName, nameof(AppStates));
+                Current = new AppStates();
+                return;
+            }
+
+            try
+            {
+                var jsonText = File.ReadAllText(FileName);
+                Current = JsonSerializer.Deserialize<AppStates>(jsonText, _opt);
+            }
+            catch (Exception ex) when (ex is IOException or JsonException)
+            {
+                _logger.LogWarning(ex, "Failed to load {FileName}; using default {TypeName}.", FileName, nameof(AppStates));
+                Current = new AppStates();
+            }
         }
 
         public void SaveFile()
