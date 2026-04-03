@@ -83,7 +83,6 @@ namespace Narabemi
                         .AddSingleton<Settings.AppStatesService>()
                         .AddSingleton<MainWindow>()
                         .AddSingleton<MainWindowViewModel>()
-                        .AddTransient<VersionWindow>()
                         .AddSingleton(new VersionWindowViewModel()
                         {
                             VersionText = $"{App.ProductName} v{App.Version}",
