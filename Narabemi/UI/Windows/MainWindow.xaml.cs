@@ -12,7 +12,6 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Narabemi.Models;
 using Narabemi.Services;
@@ -117,6 +116,7 @@ namespace Narabemi.UI.Windows
         private readonly Settings.AppStatesService _appState;
         private readonly MediaElementsManager _mediaElementsManager;
         private readonly ControlFadeManager _controlFadeManager;
+        private readonly VersionWindowViewModel _versionWindowViewModel;
         private readonly object _lockObj = new();
         private readonly DispatcherTimer _autoSyncTimer;
 
@@ -125,13 +125,15 @@ namespace Narabemi.UI.Windows
             IConfiguration conf,
             Settings.AppStatesService appState,
             MediaElementsManager mediaElementsManager,
-            ControlFadeManager controlFadeManager)
+            ControlFadeManager controlFadeManager,
+            VersionWindowViewModel versionWindowViewModel)
         {
             _logger = logger;
             _appSettings = conf.Get<Settings.AppSettings>();
             _appState = appState;
             _mediaElementsManager = mediaElementsManager;
             _controlFadeManager = controlFadeManager;
+            _versionWindowViewModel = versionWindowViewModel;
 
             MainPlayerIndex = 0;
 
@@ -251,15 +253,13 @@ namespace Narabemi.UI.Windows
         [RelayCommand] private void SetLayoutComparisonSliderView() => SetLayout(0.0, 1.0);
 
         [RelayCommand]
-        private static void ShowVersion()
+        private void ShowVersion()
         {
-            var mainWindow = App.Services?.GetRequiredService<MainWindow>();
-            var versionWindow = App.Services?.GetRequiredService<VersionWindow>();
-            if (versionWindow != null)
+            var versionWindow = new VersionWindow(_versionWindowViewModel)
             {
-                versionWindow.Owner = mainWindow;
-                versionWindow.ShowDialog();
-            }
+                Owner = Application.Current.MainWindow
+            };
+            versionWindow.ShowDialog();
         }
 
         private void SetLayout(double sideBySideViewHeight, double sliderComparisonViewHeight)
