@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,7 @@ namespace Narabemi.Services
     {
         public int MainPlayerId { get; set; }
         public bool AutoSync { get; set; }
+        public bool Loop { get; set; }
         public MainWindowViewModel? MainWindowViewModel { get; set; } = null;
 
         private readonly ConcurrentDictionary<int, Unosquare.FFME.MediaElement> _mediaElements = new();
@@ -23,6 +25,8 @@ namespace Narabemi.Services
         private readonly ConcurrentDictionary<int, EventHandler<MediaStateChangedEventArgs>> _mediaStateChangedHandlers = new();
         private readonly ConcurrentDictionary<int, EventHandler<MediaOpeningEventArgs>> _mediaOpeningHandlers = new();
         private readonly ConcurrentDictionary<int, EventHandler<MediaOpeningEventArgs>> _mediaChangingHandlers = new();
+        private readonly ConcurrentDictionary<int, EventHandler<EventArgs>> _mediaEndedHandlers = new();
+        private readonly object _loopLock = new();
         private readonly ILogger _logger;
 
         public MediaElementsManager(ILogger<MediaElementsManager> logger)
@@ -125,13 +129,35 @@ namespace Narabemi.Services
             EventHandler<MediaOpeningEventArgs> mediaOpeningHandler = (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
             EventHandler<MediaOpeningEventArgs> mediaChangingHandler = (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
 
+            EventHandler<EventArgs> mediaEndedHandler = async (s, e) =>
+            {
+                if (!Loop)
+                    return;
+
+                if (!Monitor.TryEnter(_loopLock))
+                    return;
+
+                try
+                {
+                    _logger.LogDebug("Loop: restarting playback (triggered by player {PlayerId})", playerId);
+                    await SeekAllAsync(TimeSpan.Zero);
+                    await PlayAllAsync();
+                }
+                finally
+                {
+                    Monitor.Exit(_loopLock);
+                }
+            };
+
             _mediaStateChangedHandlers[playerId] = mediaStateChangedHandler;
             _mediaOpeningHandlers[playerId] = mediaOpeningHandler;
             _mediaChangingHandlers[playerId] = mediaChangingHandler;
+            _mediaEndedHandlers[playerId] = mediaEndedHandler;
 
             mediaElement.MediaStateChanged += mediaStateChangedHandler;
             mediaElement.MediaOpening += mediaOpeningHandler;
             mediaElement.MediaChanging += mediaChangingHandler;
+            mediaElement.MediaEnded += mediaEndedHandler;
         }
 
         public void Unregister(int playerId)
@@ -146,6 +172,9 @@ namespace Narabemi.Services
 
                 if (_mediaChangingHandlers.TryGetValue(playerId, out var mediaChangingHandler))
                     mediaElement.MediaChanging -= mediaChangingHandler;
+
+                if (_mediaEndedHandlers.TryGetValue(playerId, out var mediaEndedHandler))
+                    mediaElement.MediaEnded -= mediaEndedHandler;
             }
 
             _mediaElements.TryRemove(playerId, out _);
@@ -153,6 +182,7 @@ namespace Narabemi.Services
             _mediaStateChangedHandlers.TryRemove(playerId, out _);
             _mediaOpeningHandlers.TryRemove(playerId, out _);
             _mediaChangingHandlers.TryRemove(playerId, out _);
+            _mediaEndedHandlers.TryRemove(playerId, out _);
         }
 
         public async ValueTask PlayAllAsync() =>
