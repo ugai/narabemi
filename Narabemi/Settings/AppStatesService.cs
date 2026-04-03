@@ -46,6 +46,12 @@ namespace Narabemi.Settings
             {
                 var jsonText = File.ReadAllText(FileName);
                 Current = JsonSerializer.Deserialize<AppStates>(jsonText, _opt);
+
+                if (Current is null)
+                {
+                    _logger.LogWarning("{FileName} deserialized to null; using default {TypeName}.", FileName, nameof(AppStates));
+                    Current = new AppStates();
+                }
             }
             catch (Exception ex) when (ex is IOException or JsonException)
             {

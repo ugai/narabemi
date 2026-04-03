@@ -22,6 +22,11 @@ namespace Narabemi.Services
 
         private readonly ConcurrentDictionary<int, Unosquare.FFME.MediaElement> _mediaElements = new();
         private readonly ConcurrentDictionary<int, VideoPlayerViewModel> _playerViewModels = new();
+        private readonly ConcurrentDictionary<int, EventHandler<MediaStateChangedEventArgs>> _mediaStateChangedHandlers = new();
+        private readonly ConcurrentDictionary<int, EventHandler<MediaOpeningEventArgs>> _mediaOpeningHandlers = new();
+        private readonly ConcurrentDictionary<int, EventHandler<MediaOpeningEventArgs>> _mediaChangingHandlers = new();
+        private readonly ConcurrentDictionary<int, EventHandler> _mediaEndedHandlers = new();
+        private readonly object _loopLock = new();
         private readonly ILogger _logger;
 
         public MediaElementsManager(ILogger<MediaElementsManager> logger)
@@ -117,15 +122,16 @@ namespace Narabemi.Services
 
         public void Register(int playerId, Unosquare.FFME.MediaElement mediaElement, VideoPlayerViewModel playerViewModel)
         {
+            Unregister(playerId);
+
             _mediaElements[playerId] = mediaElement;
             _playerViewModels[playerId] = playerViewModel;
 
-            mediaElement.MediaStateChanged += (s, e) => CorrectGlobalPlaybackState();
+            EventHandler<MediaStateChangedEventArgs> mediaStateChangedHandler = (s, e) => CorrectGlobalPlaybackState();
+            EventHandler<MediaOpeningEventArgs> mediaOpeningHandler = (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
+            EventHandler<MediaOpeningEventArgs> mediaChangingHandler = (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
 
-            mediaElement.MediaOpening += (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
-            mediaElement.MediaChanging += (s, e) => e.Options.SubtitlesSource = playerViewModel.SubtitlePath;
-
-            mediaElement.MediaEnded += async (s, e) =>
+            EventHandler mediaEndedHandler = async (s, e) =>
             {
                 if (!Loop)
                     return;
@@ -144,6 +150,41 @@ namespace Narabemi.Services
                     Monitor.Exit(_loopLock);
                 }
             };
+
+            _mediaStateChangedHandlers[playerId] = mediaStateChangedHandler;
+            _mediaOpeningHandlers[playerId] = mediaOpeningHandler;
+            _mediaChangingHandlers[playerId] = mediaChangingHandler;
+            _mediaEndedHandlers[playerId] = mediaEndedHandler;
+
+            mediaElement.MediaStateChanged += mediaStateChangedHandler;
+            mediaElement.MediaOpening += mediaOpeningHandler;
+            mediaElement.MediaChanging += mediaChangingHandler;
+            mediaElement.MediaEnded += mediaEndedHandler;
+        }
+
+        public void Unregister(int playerId)
+        {
+            if (_mediaElements.TryGetValue(playerId, out var mediaElement))
+            {
+                if (_mediaStateChangedHandlers.TryGetValue(playerId, out var mediaStateChangedHandler))
+                    mediaElement.MediaStateChanged -= mediaStateChangedHandler;
+
+                if (_mediaOpeningHandlers.TryGetValue(playerId, out var mediaOpeningHandler))
+                    mediaElement.MediaOpening -= mediaOpeningHandler;
+
+                if (_mediaChangingHandlers.TryGetValue(playerId, out var mediaChangingHandler))
+                    mediaElement.MediaChanging -= mediaChangingHandler;
+
+                if (_mediaEndedHandlers.TryGetValue(playerId, out var mediaEndedHandler))
+                    mediaElement.MediaEnded -= mediaEndedHandler;
+            }
+
+            _mediaElements.TryRemove(playerId, out _);
+            _playerViewModels.TryRemove(playerId, out _);
+            _mediaStateChangedHandlers.TryRemove(playerId, out _);
+            _mediaOpeningHandlers.TryRemove(playerId, out _);
+            _mediaChangingHandlers.TryRemove(playerId, out _);
+            _mediaEndedHandlers.TryRemove(playerId, out _);
         }
 
         public async ValueTask PlayAllAsync() =>

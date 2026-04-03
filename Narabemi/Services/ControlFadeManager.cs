@@ -75,16 +75,14 @@ namespace Narabemi.Services
                 var elapsed = e.SignalTime.ToUniversalTime() - _lastMouseMoveTime;
                 if (elapsed > _hideStartDuration)
                 {
-                    // IsMouseOver is a WPF DependencyProperty and must be read on the UI thread.
-                    var isHovered = false;
+                    // IsMouseOver is a WPF DependencyProperty — read it and conditionally
+                    // send the hide message atomically on the UI thread.
                     await UIThread.TryInvokeAsync(() =>
                     {
-                        isHovered = _mouseHoverTargets.Any(v => v.IsMouseOver);
+                        if (!_mouseHoverTargets.Any(v => v.IsMouseOver))
+                            WeakReferenceMessenger.Default.Send(new ControlsVisibilityMessage(false));
                         return ValueTask.CompletedTask;
                     });
-
-                    if (!isHovered)
-                        WeakReferenceMessenger.Default.Send(new ControlsVisibilityMessage(false));
                 }
             }
             else
