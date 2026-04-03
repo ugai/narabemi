@@ -14,6 +14,6 @@ float4 main(float2 uv : TEXCOORD) : COLOR
     float4 color1 = tex2D(input1, uv);
     float4 color = lerp(color0, color1, step(ratio, uv.y));
     return lerp(color, borderColor,
-        step(uv.y - (borderWidth / widthPx / 2.0f), ratio) *
-        step(ratio, uv.y + borderWidth / widthPx / 2.0f));
+        step(uv.y - (borderWidth / heightPx / 2.0f), ratio) *
+        step(ratio, uv.y + borderWidth / heightPx / 2.0f));
 }
