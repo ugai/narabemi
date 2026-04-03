@@ -122,6 +122,8 @@ namespace Narabemi.Services
 
         public void Register(int playerId, Unosquare.FFME.MediaElement mediaElement, VideoPlayerViewModel playerViewModel)
         {
+            Unregister(playerId);
+
             _mediaElements[playerId] = mediaElement;
             _playerViewModels[playerId] = playerViewModel;
 
