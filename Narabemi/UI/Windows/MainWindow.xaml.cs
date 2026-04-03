@@ -237,14 +237,8 @@ namespace Narabemi.UI.Windows
         }
 
         [RelayCommand]
-        private void VolumeIconMouseDown(MouseEventArgs e)
-        {
-            if (e.LeftButton == MouseButtonState.Pressed)
-            {
-                IsMasterVolumeMuted = !IsMasterVolumeMuted;
-                e.Handled = true;
-            }
-        }
+        private void VolumeIconMouseDown(MouseEventArgs e) =>
+            Utils.ToggleMuteOnLeftClick(e, IsMasterVolumeMuted, v => IsMasterVolumeMuted = v);
 
         [RelayCommand] private void SetLayoutBothViewt() => SetLayout(1.0, 2.0);
         [RelayCommand] private void SetLayouSideBySideView() => SetLayout(1.0, 0.0);
