@@ -54,9 +54,9 @@
             <MenuItem Header="_View">
                 <MenuItem Header="_Layouts">
                     <MenuItem Header="Both"
-                              Command="{Binding SetLayoutBothViewtCommand}" />
+                              Command="{Binding SetLayoutBothViewCommand}" />
                     <MenuItem Header="Side By Side View"
-                              Command="{Binding SetLayouSideBySideViewCommand}" />
+                              Command="{Binding SetLayoutSideBySideViewCommand}" />
                     <MenuItem Header="Comparison Slider View"
                               Command="{Binding SetLayoutComparisonSliderViewCommand}" />
                 </MenuItem>
