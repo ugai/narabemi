@@ -49,7 +49,7 @@ namespace Narabemi.UI.Windows
             {
                 var videoPlayerVM = new VideoPlayerViewModel(logger, _viewModel, i);
                 var videoPlayer = _videoPlayers[i];
-                videoPlayer.LateInit(videoPlayerVM, logger);
+                videoPlayer.LateInit(videoPlayerVM);
                 _viewModel.PlayerViewModels.Add(videoPlayerVM);
                 _viewModel.PlayerNames.Add($"Player {(i == 0 ? "Left" : "Right")}");
 
