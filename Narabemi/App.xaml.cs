@@ -88,7 +88,10 @@ namespace Narabemi
                         {
                             VersionText = $"{App.ProductName} v{App.Version}",
                             SiteUrl = App.SiteUrl,
-                        });
+                        })
+                        .AddTransient<UI.Controls.VideoPlayerViewModel>()
+                        .AddSingleton<Func<int, UI.Controls.VideoPlayerViewModel>>(sp =>
+                            playerId => ActivatorUtilities.CreateInstance<UI.Controls.VideoPlayerViewModel>(sp, playerId));
                 });
 
         protected override async void OnStartup(StartupEventArgs e)

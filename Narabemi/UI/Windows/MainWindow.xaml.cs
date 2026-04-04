@@ -29,7 +29,7 @@ namespace Narabemi.UI.Windows
             MainWindowViewModel viewModel,
             MediaElementsManager mediaElementsManager,
             ControlFadeManager controlFadeManager,
-            ILogger<MainWindow> logger)
+            Func<int, VideoPlayerViewModel> videoPlayerViewModelFactory)
         {
             InitializeComponent();
 
@@ -48,7 +48,7 @@ namespace Narabemi.UI.Windows
 
             for (int i = 0; i < _videoPlayers.Length; i++)
             {
-                var videoPlayerVM = new VideoPlayerViewModel(logger, _viewModel, i);
+                var videoPlayerVM = videoPlayerViewModelFactory(i);
                 var videoPlayer = _videoPlayers[i];
                 videoPlayer.LateInit(videoPlayerVM);
                 _viewModel.PlayerViewModels.Add(videoPlayerVM);
