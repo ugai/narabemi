@@ -24,7 +24,12 @@ dotnet watch run --project Narabemi/Narabemi.csproj
 
 **Note:** The PreBuild target compiles HLSL shaders via `Shaders/compile_shaders.bat` and copies them to the output directory. FFmpeg binaries must be present at the path configured in `appsettings.json` (default: `./ffmpeg/bin`). Run `download_ffmpeg.bat` to fetch them.
 
-There are no unit tests in this project.
+```bash
+# Test
+dotnet test Narabemi.Tests/Narabemi.Tests.csproj
+```
+
+Tests run automatically as a pre-commit hook.
 
 ## Architecture
 
@@ -36,6 +41,8 @@ There are no unit tests in this project.
 - `MediaElementsManager` — synchronizes playback across two video players, handles sync strategies (simple offset vs. speed-ratio adjustment)
 - `ControlFadeManager` — auto-hide/show UI controls based on mouse activity
 - `AppStatesService` — persists/loads mutable runtime state (`appstates.json`)
+
+**Settings layer** (`Settings/`) has no WPF dependency. `ColorRgba` is a platform-neutral color type used in `IAppStateTarget` and `AppStates`; conversion to `System.Windows.Media.Color` happens only in `MainWindowViewModel`.
 
 **UI layer:** `UI/Windows/` for windows, `UI/Controls/` for reusable controls. Each has a XAML + code-behind + ViewModel. `VideoPlayer` wraps `FFME.MediaElement` with drag-and-drop, subtitle support, and per-player volume/offset.
 
