@@ -18,6 +18,7 @@ using Microsoft.Extensions.Logging;
 using Narabemi.Messages;
 using Narabemi.Models;
 using Narabemi.Services;
+using Narabemi.Settings;
 using Narabemi.UI.Controls;
 
 namespace Narabemi.UI.Windows
@@ -65,7 +66,7 @@ namespace Narabemi.UI.Windows
         private void CloseCommandBinding_CanExecute(object sender, CanExecuteRoutedEventArgs e) => e.CanExecute = true;
     }
 
-    public partial class MainWindowViewModel : ObservableValidator
+    public partial class MainWindowViewModel : ObservableValidator, IAppStateTarget
     {
         [ObservableProperty]
         private GlobalPlaybackState globalPlaybackState = GlobalPlaybackState.Init;
@@ -110,6 +111,10 @@ namespace Narabemi.UI.Windows
         public List<VideoPlayerViewModel> PlayerViewModels { get; } = new();
         public ObservableCollection<string> PlayerNames { get; } = new();
         public ObservableCollection<AspectRatio> AspectRatioPresets { get; } = new(AspectRatios.All);
+
+        // IAppStateTarget explicit implementation — exposes players through the settings-layer abstraction
+        IList<IAppStatePlayerTarget> IAppStateTarget.StatePlayers =>
+            PlayerViewModels.Cast<IAppStatePlayerTarget>().ToList();
 
         private static readonly AspectRatioToStringConverter _aspectRatioToStringConverter = new();
         private readonly ILogger<MainWindowViewModel> _logger;
