@@ -29,7 +29,7 @@ namespace Narabemi.Settings
         public AppStatesService(ILogger<AppStatesService> logger)
         {
             _logger = logger;
-            _opt.Converters.Add(new ColorJsonConverter());
+            _opt.Converters.Add(new ColorRgbaJsonConverter());
         }
 
         public void LoadFile()
