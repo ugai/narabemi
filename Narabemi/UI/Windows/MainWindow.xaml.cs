@@ -114,9 +114,15 @@ namespace Narabemi.UI.Windows
         public ObservableCollection<string> PlayerNames { get; } = new();
         public ObservableCollection<AspectRatio> AspectRatioPresets { get; } = new(AspectRatios.All);
 
-        // IAppStateTarget explicit implementation — exposes players through the settings-layer abstraction
+        // IAppStateTarget explicit implementations — bridge between Settings layer and WPF types
         IList<IAppStatePlayerTarget> IAppStateTarget.StatePlayers =>
             PlayerViewModels.Cast<IAppStatePlayerTarget>().ToList();
+
+        ColorRgba IAppStateTarget.BlendBorderColor
+        {
+            get => new(BlendBorderColor.R, BlendBorderColor.G, BlendBorderColor.B, BlendBorderColor.A);
+            set => BlendBorderColor = System.Windows.Media.Color.FromArgb(value.A, value.R, value.G, value.B);
+        }
 
         private static readonly AspectRatioToStringConverter _aspectRatioToStringConverter = new();
         private readonly ILogger<MainWindowViewModel> _logger;

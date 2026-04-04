@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Windows.Media;
 
 namespace Narabemi.Settings
 {
@@ -14,7 +13,7 @@ namespace Narabemi.Settings
         int MainPlayerIndex { get; set; }
         IList<IAppStatePlayerTarget> StatePlayers { get; }
         double BlendBorderWidth { get; set; }
-        Color BlendBorderColor { get; set; }
+        ColorRgba BlendBorderColor { get; set; }
     }
 
     /// <summary>
