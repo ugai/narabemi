@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.Logging;
-using Narabemi.UI.Windows;
 
 namespace Narabemi.Settings
 {
@@ -68,30 +67,30 @@ namespace Narabemi.Settings
             File.WriteAllText(FileName, jsonText);
         }
 
-        public void ApplyTo(MainWindowViewModel vm)
+        public void ApplyTo(IAppStateTarget target)
         {
             Guard.IsNotNull(Current);
 
-            vm.Loop = Current.Loop;
-            vm.AutoSync = Current.AutoSync;
-            vm.MainPlayerIndex = Current.MainPlayerIndex;
-            for (int i = 0; i < Math.Min(vm.PlayerViewModels.Count, Current.VideoPathList.Count); i++)
-                vm.PlayerViewModels[i].VideoPath = Current.VideoPathList[i];
-            vm.BlendBorderWidth = Current.BlendBorderWidth;
-            vm.BlendBorderColor = Current.BlendBorderColor;
+            target.Loop = Current.Loop;
+            target.AutoSync = Current.AutoSync;
+            target.MainPlayerIndex = Current.MainPlayerIndex;
+            for (int i = 0; i < Math.Min(target.StatePlayers.Count, Current.VideoPathList.Count); i++)
+                target.StatePlayers[i].VideoPath = Current.VideoPathList[i];
+            target.BlendBorderWidth = Current.BlendBorderWidth;
+            target.BlendBorderColor = Current.BlendBorderColor;
         }
 
-        public void ApplyFrom(MainWindowViewModel vm)
+        public void ApplyFrom(IAppStateTarget target)
         {
             Guard.IsNotNull(Current);
 
-            Current.Loop = vm.Loop;
-            Current.AutoSync = vm.AutoSync;
-            Current.MainPlayerIndex = vm.MainPlayerIndex;
+            Current.Loop = target.Loop;
+            Current.AutoSync = target.AutoSync;
+            Current.MainPlayerIndex = target.MainPlayerIndex;
             Current.VideoPathList.Clear();
-            Current.VideoPathList.AddRange(vm.PlayerViewModels.Select(v => v.VideoPath));
-            Current.BlendBorderWidth = vm.BlendBorderWidth;
-            Current.BlendBorderColor = vm.BlendBorderColor;
+            Current.VideoPathList.AddRange(target.StatePlayers.Select(p => p.VideoPath));
+            Current.BlendBorderWidth = target.BlendBorderWidth;
+            Current.BlendBorderColor = target.BlendBorderColor;
         }
     }
 }

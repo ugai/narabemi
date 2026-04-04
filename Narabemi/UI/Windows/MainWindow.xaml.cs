@@ -12,10 +12,13 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Narabemi.Messages;
 using Narabemi.Models;
 using Narabemi.Services;
+using Narabemi.Settings;
 using Narabemi.UI.Controls;
 
 namespace Narabemi.UI.Windows
@@ -25,20 +28,20 @@ namespace Narabemi.UI.Windows
         private readonly MainWindowViewModel _viewModel;
         private readonly VideoPlayer[] _videoPlayers;
 
+        private readonly ControlFadeAnimator _controlFadeAnimator = new();
+
         public MainWindow(
             MainWindowViewModel viewModel,
             MediaElementsManager mediaElementsManager,
             ControlFadeManager controlFadeManager,
-            ILogger<MainWindow> logger)
+            Func<int, VideoPlayerViewModel> videoPlayerViewModelFactory)
         {
             InitializeComponent();
 
             _viewModel = viewModel;
             _videoPlayers = MultiVideoGrid.Children.OfType<VideoPlayer>().ToArray();
 
-            mediaElementsManager.MainWindowViewModel = viewModel;
-
-            controlFadeManager.AddAnimationTarget(ControlsGrid);
+            _controlFadeAnimator.AddTarget(ControlsGrid);
             controlFadeManager.AddMouseMoveTarget(MultiVideoGrid);
             controlFadeManager.AddMouseMoveTarget(BlendVideoGrid);
             controlFadeManager.AddMouseHoverTarget(ControlsGrid);
@@ -48,7 +51,7 @@ namespace Narabemi.UI.Windows
 
             for (int i = 0; i < _videoPlayers.Length; i++)
             {
-                var videoPlayerVM = new VideoPlayerViewModel(logger, _viewModel, i);
+                var videoPlayerVM = videoPlayerViewModelFactory(i);
                 var videoPlayer = _videoPlayers[i];
                 videoPlayer.LateInit(videoPlayerVM);
                 _viewModel.PlayerViewModels.Add(videoPlayerVM);
@@ -56,7 +59,7 @@ namespace Narabemi.UI.Windows
 
                 mediaElementsManager.Register(i, videoPlayer.MediaElement, videoPlayerVM);
 
-                controlFadeManager.AddAnimationTarget(videoPlayer.ControlsGrid);
+                _controlFadeAnimator.AddTarget(videoPlayer.ControlsGrid);
                 controlFadeManager.AddMouseHoverTarget(videoPlayer.ControlsGrid);
             }
         }
@@ -65,7 +68,7 @@ namespace Narabemi.UI.Windows
         private void CloseCommandBinding_CanExecute(object sender, CanExecuteRoutedEventArgs e) => e.CanExecute = true;
     }
 
-    public partial class MainWindowViewModel : ObservableValidator
+    public partial class MainWindowViewModel : ObservableValidator, IAppStateTarget
     {
         [ObservableProperty]
         private GlobalPlaybackState globalPlaybackState = GlobalPlaybackState.Init;
@@ -111,6 +114,10 @@ namespace Narabemi.UI.Windows
         public ObservableCollection<string> PlayerNames { get; } = new();
         public ObservableCollection<AspectRatio> AspectRatioPresets { get; } = new(AspectRatios.All);
 
+        // IAppStateTarget explicit implementation — exposes players through the settings-layer abstraction
+        IList<IAppStatePlayerTarget> IAppStateTarget.StatePlayers =>
+            PlayerViewModels.Cast<IAppStatePlayerTarget>().ToList();
+
         private static readonly AspectRatioToStringConverter _aspectRatioToStringConverter = new();
         private readonly ILogger<MainWindowViewModel> _logger;
         private readonly Settings.AppSettings _appSettings;
@@ -120,6 +127,7 @@ namespace Narabemi.UI.Windows
         private readonly VersionWindowViewModel _versionWindowViewModel;
         private readonly object _lockObj = new();
         private readonly DispatcherTimer _autoSyncTimer;
+        private bool _isUpdatingFromMedia = false;
 
         public MainWindowViewModel(
             ILogger<MainWindowViewModel> logger,
@@ -156,6 +164,13 @@ namespace Narabemi.UI.Windows
                     }
                 }
             };
+
+            WeakReferenceMessenger.Default.Register<MainWindowViewModel, PlaybackStateChangedMessage>(this, static (r, m) =>
+            {
+                r._isUpdatingFromMedia = true;
+                r.GlobalPlaybackState = m.Value;
+                r._isUpdatingFromMedia = false;
+            });
         }
 
         partial void OnMainPlayerIndexChanged(int value) =>
@@ -166,6 +181,9 @@ namespace Narabemi.UI.Windows
 
         async partial void OnGlobalPlaybackStateChanged(GlobalPlaybackState value)
         {
+            if (_isUpdatingFromMedia)
+                return;
+
             switch (value)
             {
                 case GlobalPlaybackState.Play:
