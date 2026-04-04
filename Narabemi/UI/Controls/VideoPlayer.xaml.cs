@@ -15,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using Narabemi.Messages;
 using Narabemi.Models;
+using Narabemi.Settings;
 using Narabemi.UI.Windows;
 using Unosquare.FFME.Common;
 
@@ -40,7 +41,7 @@ namespace Narabemi.UI.Controls
     }
 
     [INotifyPropertyChanged]
-    public partial class VideoPlayerViewModel
+    public partial class VideoPlayerViewModel : IAppStatePlayerTarget
     {
         public int PlayerId { get; }
 
