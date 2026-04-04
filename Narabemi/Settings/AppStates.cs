@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.Windows.Media;
 
 namespace Narabemi.Settings
 {
@@ -13,6 +12,6 @@ namespace Narabemi.Settings
         public int MainPlayerIndex { get; set; } = 0;
         public List<string> VideoPathList { get; set; } = new();
         public double BlendBorderWidth { get; set; } = 1.0;
-        public Color BlendBorderColor { get; set; } = Colors.White;
+        public ColorRgba BlendBorderColor { get; set; } = ColorRgba.White;
     }
 }
