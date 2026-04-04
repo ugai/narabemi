@@ -1,5 +1,4 @@
 using CommunityToolkit.Mvvm.Messaging.Messages;
-using Narabemi.Models;
 
 namespace Narabemi.Messages
 {

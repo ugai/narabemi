@@ -1,4 +1,4 @@
-﻿namespace Narabemi.Models
+namespace Narabemi.Models
 {
     public interface IRational<T>
     {

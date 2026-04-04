@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace Narabemi.Settings
 {
     /// <summary>
-    /// load and save the AppState file.
+    /// Load and save the AppState file.
     /// </summary>
     public class AppStatesService
     {

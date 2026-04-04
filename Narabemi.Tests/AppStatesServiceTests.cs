@@ -30,7 +30,7 @@ namespace Narabemi.Tests
         public void ApplyTo_Then_ApplyFrom_RoundTrips_AllFields()
         {
             var service = new AppStatesService(NullLogger<AppStatesService>.Instance);
-            service.LoadFile(); // no appstates.json in test runner dir → uses defaults
+            service.LoadFile();
 
             service.Current!.Loop = true;
             service.Current.AutoSync = false;
@@ -51,7 +51,6 @@ namespace Narabemi.Tests
             Assert.Equal(2.5, target.BlendBorderWidth);
             Assert.Equal(new ColorRgba(255, 0, 128, 255), target.BlendBorderColor);
 
-            // Modify target and round-trip back via ApplyFrom
             target.Loop = false;
             target.BlendBorderColor = new ColorRgba(0, 255, 0, 255);
 

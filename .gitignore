@@ -363,6 +363,7 @@ MigrationBackup/
 FodyWeavers.xsd
 
 ffmpeg/
+Narabemi/lib/
 *.zip
 
 # IDE
