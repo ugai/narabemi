@@ -28,6 +28,8 @@ namespace Narabemi.UI.Windows
         private readonly MainWindowViewModel _viewModel;
         private readonly VideoPlayer[] _videoPlayers;
 
+        private readonly ControlFadeAnimator _controlFadeAnimator = new();
+
         public MainWindow(
             MainWindowViewModel viewModel,
             MediaElementsManager mediaElementsManager,
@@ -39,7 +41,7 @@ namespace Narabemi.UI.Windows
             _viewModel = viewModel;
             _videoPlayers = MultiVideoGrid.Children.OfType<VideoPlayer>().ToArray();
 
-            controlFadeManager.AddAnimationTarget(ControlsGrid);
+            _controlFadeAnimator.AddTarget(ControlsGrid);
             controlFadeManager.AddMouseMoveTarget(MultiVideoGrid);
             controlFadeManager.AddMouseMoveTarget(BlendVideoGrid);
             controlFadeManager.AddMouseHoverTarget(ControlsGrid);
@@ -57,7 +59,7 @@ namespace Narabemi.UI.Windows
 
                 mediaElementsManager.Register(i, videoPlayer.MediaElement, videoPlayerVM);
 
-                controlFadeManager.AddAnimationTarget(videoPlayer.ControlsGrid);
+                _controlFadeAnimator.AddTarget(videoPlayer.ControlsGrid);
                 controlFadeManager.AddMouseHoverTarget(videoPlayer.ControlsGrid);
             }
         }
