@@ -7,8 +7,8 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using Narabemi.Messages;
+using Narabemi.Models;
 using Narabemi.UI.Controls;
-using Narabemi.UI.Windows;
 using Unosquare.FFME.Common;
 
 namespace Narabemi.Services
@@ -18,7 +18,8 @@ namespace Narabemi.Services
         public int MainPlayerId { get; set; }
         public bool AutoSync { get; set; }
         public bool Loop { get; set; }
-        public MainWindowViewModel? MainWindowViewModel { get; set; } = null;
+
+        private GlobalPlaybackState _lastKnownPlaybackState = GlobalPlaybackState.Init;
 
         private readonly ConcurrentDictionary<int, Unosquare.FFME.MediaElement> _mediaElements = new();
         private readonly ConcurrentDictionary<int, VideoPlayerViewModel> _playerViewModels = new();
@@ -56,7 +57,7 @@ namespace Narabemi.Services
                                 var position = targetMe.Position;
                                 if (await targetMe.Close() && await targetMe.Open(source))
                                 {
-                                    if (r.MainWindowViewModel?.GlobalPlaybackState == GlobalPlaybackState.Play)
+                                    if (r._lastKnownPlaybackState == GlobalPlaybackState.Play)
                                     {
                                         await targetMe.Play();
                                     }
@@ -278,18 +279,21 @@ namespace Narabemi.Services
 
         private void CorrectGlobalPlaybackState()
         {
-            if (MainWindowViewModel == null)
-                return;
-
             var mediaStates = _mediaElements.Values.Select(v => v.MediaState);
 
-            var vm = MainWindowViewModel;
-            if (vm.GlobalPlaybackState != GlobalPlaybackState.Play && mediaStates.All(v => v == MediaPlaybackState.Play))
-                vm.GlobalPlaybackState = GlobalPlaybackState.Play;
-            else if (vm.GlobalPlaybackState != GlobalPlaybackState.Pause && mediaStates.All(v => v == MediaPlaybackState.Pause))
-                vm.GlobalPlaybackState = GlobalPlaybackState.Pause;
-            else if (vm.GlobalPlaybackState != GlobalPlaybackState.Stop && mediaStates.All(v => v == MediaPlaybackState.Stop))
-                vm.GlobalPlaybackState = GlobalPlaybackState.Stop;
+            GlobalPlaybackState? newState = null;
+            if (_lastKnownPlaybackState != GlobalPlaybackState.Play && mediaStates.All(v => v == MediaPlaybackState.Play))
+                newState = GlobalPlaybackState.Play;
+            else if (_lastKnownPlaybackState != GlobalPlaybackState.Pause && mediaStates.All(v => v == MediaPlaybackState.Pause))
+                newState = GlobalPlaybackState.Pause;
+            else if (_lastKnownPlaybackState != GlobalPlaybackState.Stop && mediaStates.All(v => v == MediaPlaybackState.Stop))
+                newState = GlobalPlaybackState.Stop;
+
+            if (newState.HasValue)
+            {
+                _lastKnownPlaybackState = newState.Value;
+                WeakReferenceMessenger.Default.Send(new PlaybackStateChangedMessage(newState.Value));
+            }
         }
     }
 }

@@ -12,8 +12,10 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Narabemi.Messages;
 using Narabemi.Models;
 using Narabemi.Services;
 using Narabemi.UI.Controls;
@@ -35,8 +37,6 @@ namespace Narabemi.UI.Windows
 
             _viewModel = viewModel;
             _videoPlayers = MultiVideoGrid.Children.OfType<VideoPlayer>().ToArray();
-
-            mediaElementsManager.MainWindowViewModel = viewModel;
 
             controlFadeManager.AddAnimationTarget(ControlsGrid);
             controlFadeManager.AddMouseMoveTarget(MultiVideoGrid);
@@ -120,6 +120,7 @@ namespace Narabemi.UI.Windows
         private readonly VersionWindowViewModel _versionWindowViewModel;
         private readonly object _lockObj = new();
         private readonly DispatcherTimer _autoSyncTimer;
+        private bool _isUpdatingFromMedia = false;
 
         public MainWindowViewModel(
             ILogger<MainWindowViewModel> logger,
@@ -156,6 +157,13 @@ namespace Narabemi.UI.Windows
                     }
                 }
             };
+
+            WeakReferenceMessenger.Default.Register<MainWindowViewModel, PlaybackStateChangedMessage>(this, static (r, m) =>
+            {
+                r._isUpdatingFromMedia = true;
+                r.GlobalPlaybackState = m.Value;
+                r._isUpdatingFromMedia = false;
+            });
         }
 
         partial void OnMainPlayerIndexChanged(int value) =>
@@ -166,6 +174,9 @@ namespace Narabemi.UI.Windows
 
         async partial void OnGlobalPlaybackStateChanged(GlobalPlaybackState value)
         {
+            if (_isUpdatingFromMedia)
+                return;
+
             switch (value)
             {
                 case GlobalPlaybackState.Play:
