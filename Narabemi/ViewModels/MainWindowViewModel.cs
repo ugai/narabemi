@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using Narabemi.Gpu;
 using Narabemi.Settings;
 
 namespace Narabemi.ViewModels
@@ -9,6 +10,8 @@ namespace Narabemi.ViewModels
     public partial class MainWindowViewModel : ViewModelBase, IAppStateTarget
     {
         private readonly AppStatesService _appStatesService;
+        private readonly BlendRenderer? _blendRenderer;
+        private readonly FrameSyncManager? _frameSyncManager;
         private readonly ILogger<MainWindowViewModel> _logger;
 
         [ObservableProperty]
@@ -30,6 +33,12 @@ namespace Narabemi.ViewModels
         private ColorRgba _blendBorderColor = ColorRgba.White;
 
         [ObservableProperty]
+        private double _blendRatio = 0.5;
+
+        [ObservableProperty]
+        private int _blendMode;
+
+        [ObservableProperty]
         private double _masterVolume = 1.0;
 
         [ObservableProperty]
@@ -38,25 +47,51 @@ namespace Narabemi.ViewModels
         [ObservableProperty]
         private bool _isControlPanelVisible = true;
 
-        public VideoPlayerViewModel PlayerViewModel { get; }
+        public VideoPlayerViewModel PlayerA { get; }
+        public VideoPlayerViewModel PlayerB { get; }
+
+        // Convenience alias: the "primary" player drives the seek bar, duration, etc.
+        public VideoPlayerViewModel PrimaryPlayer => MainPlayerIndex == 0 ? PlayerA : PlayerB;
 
         // IAppStateTarget
-        IList<IAppStatePlayerTarget> IAppStateTarget.StatePlayers => new IAppStatePlayerTarget[] { PlayerViewModel };
+        IList<IAppStatePlayerTarget> IAppStateTarget.StatePlayers =>
+            new IAppStatePlayerTarget[] { PlayerA, PlayerB };
+
+        double IAppStateTarget.BlendRatio
+        {
+            get => BlendRatio;
+            set => BlendRatio = value;
+        }
+
+        int IAppStateTarget.BlendMode
+        {
+            get => BlendMode;
+            set => BlendMode = value;
+        }
 
         public MainWindowViewModel(
             AppStatesService appStatesService,
-            VideoPlayerViewModel playerViewModel,
+            [Microsoft.Extensions.DependencyInjection.FromKeyedServices("PlayerA")] VideoPlayerViewModel playerA,
+            [Microsoft.Extensions.DependencyInjection.FromKeyedServices("PlayerB")] VideoPlayerViewModel playerB,
+            BlendRenderer? blendRenderer,
+            FrameSyncManager? frameSyncManager,
             ILogger<MainWindowViewModel> logger)
         {
             _appStatesService = appStatesService;
+            _blendRenderer = blendRenderer;
+            _frameSyncManager = frameSyncManager;
             _logger = logger;
-            PlayerViewModel = playerViewModel;
+            PlayerA = playerA;
+            PlayerB = playerB;
 
-            PlayerViewModel.PropertyChanged += (_, e) =>
+            foreach (var player in new[] { PlayerA, PlayerB })
             {
-                if (e.PropertyName == nameof(VideoPlayerViewModel.IsPaused))
-                    SyncPlaybackState();
-            };
+                player.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(VideoPlayerViewModel.IsPaused))
+                        SyncPlaybackState();
+                };
+            }
         }
 
         private void SyncPlaybackState()
@@ -64,7 +99,8 @@ namespace Narabemi.ViewModels
             if (GlobalPlaybackState == GlobalPlaybackState.Stop)
                 return;
 
-            GlobalPlaybackState = PlayerViewModel.IsPaused
+            // Consider paused only when the primary player is paused
+            GlobalPlaybackState = PrimaryPlayer.IsPaused
                 ? GlobalPlaybackState.Pause
                 : GlobalPlaybackState.Play;
         }
@@ -89,12 +125,14 @@ namespace Narabemi.ViewModels
         {
             if (GlobalPlaybackState == GlobalPlaybackState.Stop)
             {
-                PlayerViewModel.Reopen();
+                PlayerA.Reopen();
+                PlayerB.Reopen();
                 GlobalPlaybackState = GlobalPlaybackState.Play;
             }
             else
             {
-                PlayerViewModel.TogglePause();
+                PlayerA.TogglePause();
+                PlayerB.TogglePause();
             }
         }
 
@@ -102,22 +140,54 @@ namespace Narabemi.ViewModels
         private void Stop()
         {
             GlobalPlaybackState = GlobalPlaybackState.Stop;
-            PlayerViewModel.Stop();
+            PlayerA.Stop();
+            PlayerB.Stop();
         }
 
         partial void OnLoopChanged(bool value)
         {
-            PlayerViewModel.SetLoop(value);
+            PlayerA.SetLoop(value);
+            PlayerB.SetLoop(value);
         }
 
         partial void OnMasterVolumeChanged(double value)
         {
-            PlayerViewModel.UpdateActualVolume(value, IsMasterVolumeMuted);
+            PlayerA.UpdateActualVolume(value, IsMasterVolumeMuted);
+            PlayerB.UpdateActualVolume(value, IsMasterVolumeMuted);
         }
 
         partial void OnIsMasterVolumeMutedChanged(bool value)
         {
-            PlayerViewModel.UpdateActualVolume(MasterVolume, value);
+            PlayerA.UpdateActualVolume(MasterVolume, value);
+            PlayerB.UpdateActualVolume(MasterVolume, value);
+        }
+
+        partial void OnBlendRatioChanged(double value) => PushBlendParams();
+        partial void OnBlendBorderWidthChanged(double value) => PushBlendParams();
+        partial void OnBlendBorderColorChanged(ColorRgba value) => PushBlendParams();
+
+        partial void OnBlendModeChanged(int value)
+        {
+            _frameSyncManager?.UpdateBlendMode((BlendMode)value);
+        }
+
+        private void PushBlendParams()
+        {
+            if (_frameSyncManager is null || _blendRenderer?.OutputTexture is null) return;
+
+            var p = new BlendParams
+            {
+                WidthPx = _blendRenderer.OutputTexture.Width,
+                HeightPx = _blendRenderer.OutputTexture.Height,
+                Ratio = (float)BlendRatio,
+                BorderWidth = (float)BlendBorderWidth,
+                BorderColor = new System.Numerics.Vector4(
+                    BlendBorderColor.R / 255f,
+                    BlendBorderColor.G / 255f,
+                    BlendBorderColor.B / 255f,
+                    BlendBorderColor.A / 255f),
+            };
+            _frameSyncManager.UpdateBlendParams(p);
         }
 
         [RelayCommand]

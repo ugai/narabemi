@@ -13,5 +13,7 @@ namespace Narabemi.Settings
         public List<string> VideoPathList { get; set; } = new();
         public double BlendBorderWidth { get; set; } = 1.0;
         public ColorRgba BlendBorderColor { get; set; } = ColorRgba.White;
+        public double BlendRatio { get; set; } = 0.5;
+        public int BlendMode { get; set; }
     }
 }

@@ -61,13 +61,32 @@ namespace Narabemi.ViewModels
 
         private bool _pendingLoop;
 
+        /// <summary>
+        /// Initializes mpv with native window embedding (legacy --wid mode, Phase 1).
+        /// </summary>
         public void InitMpv(IntPtr windowHandle)
         {
             if (_mpvInitialized) return;
 
             _mpvPlayer.Init(windowHandle.ToInt64());
-            _mpvInitialized = true;
+            FinishInit();
+        }
 
+        /// <summary>
+        /// Initializes mpv in headless mode for use with the render API (Phase 2).
+        /// MpvGlRenderer must call CreateRenderContext() separately after this.
+        /// </summary>
+        public void InitMpvHeadless()
+        {
+            if (_mpvInitialized) return;
+
+            _mpvPlayer.InitHeadless();
+            FinishInit();
+        }
+
+        private void FinishInit()
+        {
+            _mpvInitialized = true;
             _mpvPlayer.Loop = _pendingLoop;
 
             _pollTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, OnPollTimer);

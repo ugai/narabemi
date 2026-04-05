@@ -78,6 +78,8 @@ namespace Narabemi.Settings
                 target.StatePlayers[i].VideoPath = Current.VideoPathList[i];
             target.BlendBorderWidth = Current.BlendBorderWidth;
             target.BlendBorderColor = Current.BlendBorderColor;
+            target.BlendRatio = Current.BlendRatio;
+            target.BlendMode = Current.BlendMode;
         }
 
         public void ApplyFrom(IAppStateTarget target)
@@ -91,6 +93,8 @@ namespace Narabemi.Settings
             Current.VideoPathList.AddRange(target.StatePlayers.Select(p => p.VideoPath));
             Current.BlendBorderWidth = target.BlendBorderWidth;
             Current.BlendBorderColor = target.BlendBorderColor;
+            Current.BlendRatio = target.BlendRatio;
+            Current.BlendMode = target.BlendMode;
         }
     }
 }

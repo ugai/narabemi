@@ -24,6 +24,8 @@ namespace Narabemi.Tests
             };
             public double BlendBorderWidth { get; set; }
             public ColorRgba BlendBorderColor { get; set; }
+            public double BlendRatio { get; set; }
+            public int BlendMode { get; set; }
         }
 
         [Fact]

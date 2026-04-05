@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Narabemi.Gpu;
 using Narabemi.Mpv;
 using Narabemi.Services;
 using Narabemi.Settings;
@@ -90,8 +91,26 @@ namespace Narabemi
 
                     services.AddSingleton<AppStatesService>();
                     services.AddSingleton<ControlFadeManager>();
-                    services.AddSingleton<MpvPlayer>();
-                    services.AddSingleton<VideoPlayerViewModel>();
+
+                    // GPU pipeline services
+                    services.AddSingleton<D3D11DeviceManager>();
+                    services.AddSingleton<BlendRenderer>();
+                    services.AddSingleton<FrameSyncManager>();
+
+                    // Two independent mpv players (keyed)
+                    services.AddKeyedSingleton<MpvPlayer>("PlayerA");
+                    services.AddKeyedSingleton<MpvPlayer>("PlayerB");
+
+                    // Two independent VideoPlayerViewModels (keyed, each with their own MpvPlayer)
+                    services.AddKeyedSingleton<VideoPlayerViewModel>("PlayerA",
+                        (sp, _) => new VideoPlayerViewModel(
+                            sp.GetRequiredKeyedService<MpvPlayer>("PlayerA"),
+                            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<VideoPlayerViewModel>>()));
+                    services.AddKeyedSingleton<VideoPlayerViewModel>("PlayerB",
+                        (sp, _) => new VideoPlayerViewModel(
+                            sp.GetRequiredKeyedService<MpvPlayer>("PlayerB"),
+                            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<VideoPlayerViewModel>>()));
+
                     services.AddSingleton<MainWindowViewModel>();
                     services.AddSingleton<MainWindow>();
                 });

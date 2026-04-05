@@ -12,6 +12,7 @@ namespace Narabemi.Mpv
     public sealed class MpvPlayer : IDisposable
     {
         private IntPtr _ctx;
+        private IntPtr _renderCtx;
         private Thread? _eventThread;
         private volatile bool _disposed;
         private readonly ILogger _logger;
@@ -30,12 +31,17 @@ namespace Narabemi.Mpv
 
         public IntPtr Handle => _ctx;
         public bool IsInitialized => _ctx != IntPtr.Zero;
+        public bool HasRenderContext => _renderCtx != IntPtr.Zero;
 
         public MpvPlayer(ILogger<MpvPlayer> logger)
         {
             _logger = logger;
         }
 
+        /// <summary>
+        /// Initializes mpv with native window embedding (legacy --wid mode).
+        /// windowId=0 means no window (for render API use after calling InitRenderApi).
+        /// </summary>
         public void Init(long windowId = 0)
         {
             _ctx = MpvApi.Create();
@@ -45,6 +51,86 @@ namespace Narabemi.Mpv
             if (windowId != 0)
                 CheckError(MpvApi.SetOptionString(_ctx, "wid", windowId.ToString()));
 
+            ApplyCommonOptions();
+            CheckError(MpvApi.Initialize(_ctx));
+            StartEventLoop();
+            _logger.LogInformation("mpv initialized (wid={WindowId})", windowId);
+        }
+
+        /// <summary>
+        /// Initializes mpv for use with the render API (no native window).
+        /// Call CreateRenderContext() after this to set up OpenGL rendering.
+        /// </summary>
+        public void InitHeadless()
+        {
+            _ctx = MpvApi.Create();
+            if (_ctx == IntPtr.Zero)
+                throw new InvalidOperationException("mpv_create failed");
+
+            // Force libmpv video output (no native window embedding)
+            CheckError(MpvApi.SetOptionString(_ctx, "vo", "libmpv"));
+            ApplyCommonOptions();
+            CheckError(MpvApi.Initialize(_ctx));
+            StartEventLoop();
+            _logger.LogInformation("mpv initialized (headless / render API mode)");
+        }
+
+        /// <summary>
+        /// Creates the mpv render context for OpenGL rendering.
+        /// Must be called from the thread that owns the GL context (the render thread).
+        /// params is a pinned MpvRenderParam[] terminated by MpvRenderParam.Terminator.
+        /// </summary>
+        public void CreateRenderContext(IntPtr @params, MpvRenderUpdateFn updateCallback)
+        {
+            EnsureInit();
+            CheckError(MpvRenderApi.RenderContextCreate(out _renderCtx, _ctx, @params));
+            MpvRenderApi.RenderContextSetUpdateCallback(_renderCtx, updateCallback, IntPtr.Zero);
+        }
+
+        /// <summary>
+        /// Renders the current video frame into the specified FBO.
+        /// Must be called from the thread that owns the GL context.
+        /// </summary>
+        public unsafe void RenderFrame(int fbo, int width, int height)
+        {
+            if (_renderCtx == IntPtr.Zero) return;
+
+            var fboDesc = new MpvOpenGlFbo { Fbo = fbo, Width = width, Height = height };
+            var flipY = 1; // OpenGL has inverted Y vs D3D convention
+
+            var fboHandle = GCHandle.Alloc(fboDesc, GCHandleType.Pinned);
+            var flipHandle = GCHandle.Alloc(flipY, GCHandleType.Pinned);
+            try
+            {
+                var paramArray = new MpvRenderParam[]
+                {
+                    new(MpvRenderParamType.OpenGlFbo, fboHandle.AddrOfPinnedObject()),
+                    new(MpvRenderParamType.FlipY, flipHandle.AddrOfPinnedObject()),
+                    MpvRenderParam.Terminator,
+                };
+
+                fixed (MpvRenderParam* ptr = paramArray)
+                    MpvRenderApi.RenderContextRender(_renderCtx, (IntPtr)ptr);
+            }
+            finally
+            {
+                fboHandle.Free();
+                flipHandle.Free();
+            }
+        }
+
+        /// <summary>
+        /// Reports to mpv that the rendered frame has been displayed.
+        /// Call after presenting (e.g., after GPU composite).
+        /// </summary>
+        public void ReportSwap()
+        {
+            if (_renderCtx != IntPtr.Zero)
+                MpvRenderApi.RenderContextReportSwap(_renderCtx);
+        }
+
+        private void ApplyCommonOptions()
+        {
             CheckError(MpvApi.SetOptionString(_ctx, "keep-open", "yes"));
             CheckError(MpvApi.SetOptionString(_ctx, "keep-open-pause", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "idle", "yes"));
@@ -52,9 +138,10 @@ namespace Narabemi.Mpv
             CheckError(MpvApi.SetOptionString(_ctx, "input-vo-keyboard", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "osc", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "osd-level", "0"));
+        }
 
-            CheckError(MpvApi.Initialize(_ctx));
-
+        private void StartEventLoop()
+        {
             MpvApi.ObserveProperty(_ctx, ReplyPosition, "time-pos", MpvFormat.Double);
             MpvApi.ObserveProperty(_ctx, ReplyDuration, "duration", MpvFormat.Double);
             MpvApi.ObserveProperty(_ctx, ReplyPause, "pause", MpvFormat.Flag);
@@ -66,8 +153,6 @@ namespace Narabemi.Mpv
                 Name = "mpv-event-loop",
             };
             _eventThread.Start();
-
-            _logger.LogInformation("mpv initialized (wid={WindowId})", windowId);
         }
 
         public void LoadFile(string path)
@@ -281,6 +366,13 @@ namespace Narabemi.Mpv
         {
             if (_disposed) return;
             _disposed = true;
+
+            // Render context must be freed before TerminateDestroy
+            if (_renderCtx != IntPtr.Zero)
+            {
+                MpvRenderApi.RenderContextFree(_renderCtx);
+                _renderCtx = IntPtr.Zero;
+            }
 
             if (_ctx != IntPtr.Zero)
             {

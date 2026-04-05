@@ -29,6 +29,14 @@
     <PackageReference Include="CommunityToolkit.Diagnostics" Version="8.2.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="ZLogger" Version="2.5.7" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.1" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Shaders\*.cso">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

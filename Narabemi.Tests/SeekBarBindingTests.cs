@@ -11,23 +11,26 @@ namespace Narabemi.Tests
 {
     public class SeekBarBindingTests
     {
-        private static MainWindowViewModel CreateViewModel()
+        private static (MainWindowViewModel vm, VideoPlayerViewModel playerA) CreateViewModel()
         {
-            var mpvPlayer = new MpvPlayer(NullLogger<MpvPlayer>.Instance);
-            var playerVm = new VideoPlayerViewModel(mpvPlayer, NullLogger<VideoPlayerViewModel>.Instance);
+            var mpvPlayerA = new MpvPlayer(NullLogger<MpvPlayer>.Instance);
+            var mpvPlayerB = new MpvPlayer(NullLogger<MpvPlayer>.Instance);
+            var playerA = new VideoPlayerViewModel(mpvPlayerA, NullLogger<VideoPlayerViewModel>.Instance);
+            var playerB = new VideoPlayerViewModel(mpvPlayerB, NullLogger<VideoPlayerViewModel>.Instance);
             var appStatesService = new AppStatesService(NullLogger<AppStatesService>.Instance);
             appStatesService.LoadFile();
-            return new MainWindowViewModel(appStatesService, playerVm, NullLogger<MainWindowViewModel>.Instance);
+            var vm = new MainWindowViewModel(appStatesService, playerA, playerB, null, null, NullLogger<MainWindowViewModel>.Instance);
+            return (vm, playerA);
         }
 
         [AvaloniaFact]
         public void SeekBar_MaximumReflectsDuration()
         {
-            var vm = CreateViewModel();
+            var (vm, playerA) = CreateViewModel();
             var window = new MainWindow { DataContext = vm };
             window.Show();
 
-            vm.PlayerViewModel.Duration = 120.0;
+            playerA.Duration = 120.0;
 
             var seekBar = window.FindControl<Slider>("SeekBar");
             Assert.NotNull(seekBar);
@@ -37,12 +40,12 @@ namespace Narabemi.Tests
         [AvaloniaFact]
         public void SeekBar_ValueReflectsPosition()
         {
-            var vm = CreateViewModel();
+            var (vm, playerA) = CreateViewModel();
             var window = new MainWindow { DataContext = vm };
             window.Show();
 
-            vm.PlayerViewModel.Duration = 120.0;
-            vm.PlayerViewModel.Position = 30.0;
+            playerA.Duration = 120.0;
+            playerA.Position = 30.0;
 
             var seekBar = window.FindControl<Slider>("SeekBar");
             Assert.NotNull(seekBar);
@@ -52,13 +55,12 @@ namespace Narabemi.Tests
         [AvaloniaFact]
         public void SeekBar_ZeroDuration_ValueIsZero()
         {
-            var vm = CreateViewModel();
+            var (vm, playerA) = CreateViewModel();
             var window = new MainWindow { DataContext = vm };
             window.Show();
 
-            // Duration=0 のとき Position=0 でスライダーが 0 であること
-            vm.PlayerViewModel.Duration = 0.0;
-            vm.PlayerViewModel.Position = 0.0;
+            playerA.Duration = 0.0;
+            playerA.Position = 0.0;
 
             var seekBar = window.FindControl<Slider>("SeekBar");
             Assert.NotNull(seekBar);
@@ -69,16 +71,15 @@ namespace Narabemi.Tests
         [AvaloniaFact]
         public void DebugText_ReflectsPositionAndDuration()
         {
-            var vm = CreateViewModel();
+            var (vm, playerA) = CreateViewModel();
             var window = new MainWindow { DataContext = vm };
             window.Show();
 
-            vm.PlayerViewModel.Duration = 60.0;
-            vm.PlayerViewModel.Position = 15.5;
+            playerA.Duration = 60.0;
+            playerA.Position = 15.5;
 
-            // Duration と Position が ViewModel 上で正しく設定されていることを確認
-            Assert.Equal(60.0, vm.PlayerViewModel.Duration, 1);
-            Assert.Equal(15.5, vm.PlayerViewModel.Position, 1);
+            Assert.Equal(60.0, vm.PrimaryPlayer.Duration, 1);
+            Assert.Equal(15.5, vm.PrimaryPlayer.Position, 1);
         }
     }
 }

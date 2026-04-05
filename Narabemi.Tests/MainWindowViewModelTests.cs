@@ -10,11 +10,13 @@ namespace Narabemi.Tests
     {
         private static MainWindowViewModel CreateViewModel()
         {
-            var mpvPlayer = new MpvPlayer(NullLogger<MpvPlayer>.Instance);
-            var playerVm = new VideoPlayerViewModel(mpvPlayer, NullLogger<VideoPlayerViewModel>.Instance);
+            var mpvPlayerA = new MpvPlayer(NullLogger<MpvPlayer>.Instance);
+            var mpvPlayerB = new MpvPlayer(NullLogger<MpvPlayer>.Instance);
+            var playerA = new VideoPlayerViewModel(mpvPlayerA, NullLogger<VideoPlayerViewModel>.Instance);
+            var playerB = new VideoPlayerViewModel(mpvPlayerB, NullLogger<VideoPlayerViewModel>.Instance);
             var appStatesService = new AppStatesService(NullLogger<AppStatesService>.Instance);
             appStatesService.LoadFile();
-            return new MainWindowViewModel(appStatesService, playerVm, NullLogger<MainWindowViewModel>.Instance);
+            return new MainWindowViewModel(appStatesService, playerA, playerB, null, null, NullLogger<MainWindowViewModel>.Instance);
         }
 
         [Fact]
@@ -22,9 +24,9 @@ namespace Narabemi.Tests
         {
             var vm = CreateViewModel();
 
-            // Simulate: playing → paused
-            vm.PlayerViewModel.IsPaused = false;  // now playing
-            vm.PlayerViewModel.IsPaused = true;   // now paused
+            // Simulate: playing → paused (primary player = PlayerA)
+            vm.PlayerA.IsPaused = false;
+            vm.PlayerA.IsPaused = true;
 
             Assert.Equal(GlobalPlaybackState.Pause, vm.GlobalPlaybackState);
         }
@@ -35,7 +37,7 @@ namespace Narabemi.Tests
             var vm = CreateViewModel();
             vm.GlobalPlaybackState = GlobalPlaybackState.Pause;
 
-            vm.PlayerViewModel.IsPaused = false;
+            vm.PlayerA.IsPaused = false;
 
             Assert.Equal(GlobalPlaybackState.Play, vm.GlobalPlaybackState);
         }
@@ -46,9 +48,8 @@ namespace Narabemi.Tests
             var vm = CreateViewModel();
             vm.GlobalPlaybackState = GlobalPlaybackState.Stop;
 
-            // Ensure IsPaused actually changes (default is true, so set false first)
-            vm.PlayerViewModel.IsPaused = false;
-            vm.PlayerViewModel.IsPaused = true;
+            vm.PlayerA.IsPaused = false;
+            vm.PlayerA.IsPaused = true;
 
             Assert.Equal(GlobalPlaybackState.Stop, vm.GlobalPlaybackState);
         }

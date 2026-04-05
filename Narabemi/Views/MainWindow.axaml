@@ -13,15 +13,10 @@
         Background="Black"
         DragDrop.AllowDrop="True">
 
-    <Design.DataContext>
-        <vm:MainWindowViewModel/>
-    </Design.DataContext>
-
     <Grid RowDefinitions="*,Auto">
-        <!-- Video area -->
-        <controls:VideoPlayerControl Grid.Row="0"
-                                     x:Name="VideoPlayerA"
-                                     DataContext="{Binding PlayerViewModel}" />
+        <!-- GPU blend compositing surface (covers the full video area) -->
+        <controls:GpuBlendControl Grid.Row="0"
+                                  x:Name="BlendView" />
 
         <!-- Drop indicator (over video area) -->
         <Border Grid.Row="0"
@@ -52,12 +47,12 @@
                             Foreground="White" />
                 </StackPanel>
 
-                <!-- Seek bar -->
+                <!-- Seek bar (driven by the primary player) -->
                 <Slider Grid.Row="0" Grid.Column="1"
                         x:Name="SeekBar"
                         Minimum="0"
-                        Maximum="{Binding PlayerViewModel.Duration, Mode=OneWay}"
-                        Value="{Binding PlayerViewModel.Position, Mode=OneWay}"
+                        Maximum="{Binding PrimaryPlayer.Duration, Mode=OneWay}"
+                        Value="{Binding PrimaryPlayer.Position, Mode=OneWay}"
                         Margin="12,0"
                         VerticalAlignment="Center" />
 
@@ -76,11 +71,15 @@
                             VerticalAlignment="Center" />
                 </StackPanel>
 
-                <!-- Info bar -->
-                <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
-                           Text="{Binding PlayerViewModel.DisplayInfo}"
-                           Foreground="Gray" FontSize="11"
-                           Margin="0,4,0,0" />
+                <!-- Info bar: show both player file info -->
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                            Orientation="Horizontal" Spacing="16"
+                            Margin="0,4,0,0">
+                    <TextBlock Text="{Binding PlayerA.DisplayInfo}"
+                               Foreground="Gray" FontSize="11" />
+                    <TextBlock Text="{Binding PlayerB.DisplayInfo}"
+                               Foreground="#888888" FontSize="11" />
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>

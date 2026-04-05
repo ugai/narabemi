@@ -14,6 +14,8 @@ namespace Narabemi.Settings
         IList<IAppStatePlayerTarget> StatePlayers { get; }
         double BlendBorderWidth { get; set; }
         ColorRgba BlendBorderColor { get; set; }
+        double BlendRatio { get; set; }
+        int BlendMode { get; set; }
     }
 
     /// <summary>

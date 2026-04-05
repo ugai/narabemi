@@ -61,7 +61,7 @@ namespace Narabemi.Views
         private void OnSeekBarPointerPressed(object? sender, PointerPressedEventArgs e)
         {
             if (DataContext is MainWindowViewModel vm)
-                vm.PlayerViewModel.BeginSeek();
+                vm.PrimaryPlayer.BeginSeek();
         }
 
         private void OnSeekBarPointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -70,8 +70,8 @@ namespace Narabemi.Views
             {
                 var seekBar = this.FindControl<Slider>("SeekBar");
                 if (seekBar is not null)
-                    vm.PlayerViewModel.SeekTo(seekBar.Value);
-                vm.PlayerViewModel.EndSeek();
+                    vm.PrimaryPlayer.SeekTo(seekBar.Value);
+                vm.PrimaryPlayer.EndSeek();
             }
         }
 
@@ -113,7 +113,12 @@ namespace Narabemi.Views
                     .FirstOrDefault(p => p is not null && File.Exists(p));
 
                 if (filePath is not null)
-                    vm.PlayerViewModel.VideoPath = filePath;
+                {
+                    // Route to PlayerA (left half) or PlayerB (right half) based on drop position
+                    var dropX = e.GetPosition(this).X;
+                    var target = dropX < Bounds.Width / 2 ? vm.PlayerA : vm.PlayerB;
+                    target.VideoPath = filePath;
+                }
             }
         }
 
