@@ -101,6 +101,18 @@ namespace Narabemi
                     services.AddKeyedSingleton<MpvPlayer>("PlayerA");
                     services.AddKeyedSingleton<MpvPlayer>("PlayerB");
 
+                    // GL renderers (one per player — each owns a WGL context + FBO)
+                    services.AddKeyedSingleton<MpvGlRenderer>("PlayerA",
+                        (sp, _) => new MpvGlRenderer(
+                            sp.GetRequiredKeyedService<MpvPlayer>("PlayerA"),
+                            sp.GetRequiredService<D3D11DeviceManager>(),
+                            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MpvGlRenderer>>()));
+                    services.AddKeyedSingleton<MpvGlRenderer>("PlayerB",
+                        (sp, _) => new MpvGlRenderer(
+                            sp.GetRequiredKeyedService<MpvPlayer>("PlayerB"),
+                            sp.GetRequiredService<D3D11DeviceManager>(),
+                            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MpvGlRenderer>>()));
+
                     // Two independent VideoPlayerViewModels (keyed, each with their own MpvPlayer)
                     services.AddKeyedSingleton<VideoPlayerViewModel>("PlayerA",
                         (sp, _) => new VideoPlayerViewModel(

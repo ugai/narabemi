@@ -6,8 +6,10 @@ using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Narabemi.Gpu;
+using Narabemi.ViewModels;
 
 namespace Narabemi.UI.Controls
 {
@@ -88,6 +90,40 @@ namespace Narabemi.UI.Controls
                 KnownPlatformGraphicsExternalImageHandleTypes.D3D11TextureGlobalSharedHandle))
             {
                 _logger.LogError("D3D11TextureGlobalSharedHandle import not supported by this Avalonia backend.");
+                return;
+            }
+
+            // ---------------------------------------------------------------
+            // Bootstrap the GPU pipeline (D3D11 → WGL interop → mpv → blend)
+            // ---------------------------------------------------------------
+            try
+            {
+                // 1. D3D11 device
+                var d3d = App.Services?.GetService<D3D11DeviceManager>();
+                if (d3d is null) { _logger.LogError("D3D11DeviceManager not found in DI"); return; }
+                if (!d3d.IsInitialized)
+                    d3d.Initialize();
+
+                // 2. mpv headless init (must happen before render context)
+                App.Services?.GetKeyedService<VideoPlayerViewModel>("PlayerA")?.InitMpvHeadless();
+                App.Services?.GetKeyedService<VideoPlayerViewModel>("PlayerB")?.InitMpvHeadless();
+
+                // 3. GL renderer init (creates WGL context + FBO + mpv render ctx)
+                const int W = 1280;
+                const int H = 720;
+
+                var rendererA = App.Services?.GetKeyedService<MpvGlRenderer>("PlayerA");
+                var rendererB = App.Services?.GetKeyedService<MpvGlRenderer>("PlayerB");
+                rendererA?.Initialize(W, H);
+                rendererB?.Initialize(W, H);
+
+                // 4. Blend renderer + frame sync
+                if (_syncManager is not null && rendererA is not null && rendererB is not null)
+                    _syncManager.Initialize(W, H, rendererA, rendererB);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GPU pipeline bootstrap failed");
                 return;
             }
 
