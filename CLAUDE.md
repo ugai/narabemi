@@ -4,55 +4,57 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Narabemi is a Windows desktop application for side-by-side video comparison, built with C#/.NET 6.0 and WPF. It uses FFME (FFmpeg Media Element) for video playback and custom HLSL pixel shaders for blend effects.
+Narabemi is a Windows desktop application for side-by-side video comparison. There are two versions in this repository:
+
+- **`Narabemi/`** — New Avalonia + libmpv version (C#/.NET 10, active development)
+- **`Narabemi.Wpf/`** — Legacy WPF + FFME version (C#/.NET 6, preserved for reference)
 
 ## Build & Run Commands
 
 ```bash
-# Build
+# Build (Avalonia version)
 dotnet build Narabemi/Narabemi.csproj
 
 # Run
 dotnet run --project Narabemi/Narabemi.csproj
 
-# Publish
-dotnet publish Narabemi/Narabemi.csproj
-
-# Hot reload
-dotnet watch run --project Narabemi/Narabemi.csproj
+# Test (Avalonia version)
+dotnet test Narabemi.Tests/Narabemi.Tests.csproj
 ```
 
-**Note:** The PreBuild target compiles HLSL shaders via `Shaders/compile_shaders.bat` and copies them to the output directory. FFmpeg binaries must be present at the path configured in `appsettings.json` (default: `./ffmpeg/bin`). Run `download_ffmpeg.bat` to fetch them.
+**Note:** libmpv binary (`libmpv-2.dll`) must be present in `Narabemi/lib/` for video playback.
 
 ```bash
-# Test
-dotnet test Narabemi.Tests/Narabemi.Tests.csproj
+# Build (Legacy WPF version)
+dotnet build Narabemi.Wpf/Narabemi.csproj
+
+# Test (Legacy WPF version)
+dotnet test Narabemi.Wpf.Tests/Narabemi.Tests.csproj
 ```
 
 Tests run automatically as a pre-commit hook.
 
-## Architecture
+## Architecture (Avalonia version)
 
 **MVVM with DI:** Uses `Microsoft.Extensions.Hosting` for dependency injection and `CommunityToolkit.Mvvm` for the MVVM pattern (`[ObservableProperty]`, `[RelayCommand]`, `WeakReferenceMessenger`).
 
-**Entry point:** `App.xaml.cs` — builds the Generic Host, configures DI container (singletons for services and MainWindow), loads config, initializes FFME, then shows MainWindow.
+**Entry point:** `App.axaml.cs` — builds the Generic Host, configures DI container, loads config, then shows MainWindow.
 
-**Key services (all singletons):**
-- `MediaElementsManager` — synchronizes playback across two video players, handles sync strategies (simple offset vs. speed-ratio adjustment)
-- `ControlFadeManager` — auto-hide/show UI controls based on mouse activity
-- `AppStatesService` — persists/loads mutable runtime state (`appstates.json`)
+**Key components:**
+- `Mpv/MpvApi.cs` — Thin P/Invoke layer for libmpv C API
+- `Mpv/MpvPlayer.cs` — High-level playback wrapper (play/pause/seek/volume, background event loop)
+- `Mpv/MpvVideoView.cs` — Avalonia `NativeControlHost` that provides a window handle for mpv rendering
+- `Services/ControlFadeManager.cs` — auto-hide/show UI controls based on mouse activity
+- `UI/Controls/ControlFadeAnimator.cs` — Avalonia animation driver for control fade
+- `Settings/AppStatesService.cs` — persists/loads mutable runtime state (`appstates.json`)
 
-**Settings layer** (`Settings/`) has no WPF dependency. `ColorRgba` is a platform-neutral color type used in `IAppStateTarget` and `AppStates`; conversion to `System.Windows.Media.Color` happens only in `MainWindowViewModel`.
-
-**UI layer:** `UI/Windows/` for windows, `UI/Controls/` for reusable controls. Each has a XAML + code-behind + ViewModel. `VideoPlayer` wraps `FFME.MediaElement` with drag-and-drop, subtitle support, and per-player volume/offset.
+**Settings layer** (`Settings/`) has no UI framework dependency. `ColorRgba` is a platform-neutral color type.
 
 **Messaging:** Decoupled communication via `WeakReferenceMessenger` with message types in `Messages/`.
 
 **Configuration:**
-- `appsettings.json` — read-only settings (FFmpeg path, shader path, sync timer interval)
+- `appsettings.json` — read-only settings (mpv directory, sync timer interval)
 - `appstates.json` — mutable runtime state (loop, auto-sync, video paths, blend border)
-
-**Shaders:** HLSL pixel shaders in `Shaders/` compiled to `.fxc` with FXC compiler (PS 2.0). `BlendEffect.cs` loads these at runtime.
 
 ## Code Style
 

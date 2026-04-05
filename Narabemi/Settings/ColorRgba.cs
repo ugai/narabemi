@@ -4,7 +4,7 @@ namespace Narabemi.Settings
 {
     /// <summary>
     /// Platform-neutral RGBA color value, used in the Settings layer to avoid
-    /// a dependency on <c>System.Windows.Media.Color</c>.
+    /// a dependency on UI framework color types.
     /// </summary>
     public record struct ColorRgba(byte R, byte G, byte B, byte A)
     {
@@ -26,7 +26,7 @@ namespace Narabemi.Settings
                         Convert.ToByte(s[2..4].ToString(), 16),
                         Convert.ToByte(s[4..6].ToString(), 16),
                         255),
-                    8 => new ColorRgba(   // AARRGGBB (matches WPF Color.ToString())
+                    8 => new ColorRgba(
                         Convert.ToByte(s[2..4].ToString(), 16),
                         Convert.ToByte(s[4..6].ToString(), 16),
                         Convert.ToByte(s[6..8].ToString(), 16),

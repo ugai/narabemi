@@ -1,0 +1,86 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Narabemi.ViewModels"
+        xmlns:controls="using:Narabemi.UI.Controls"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="720"
+        x:Class="Narabemi.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Narabemi"
+        Width="1280" Height="720"
+        MinWidth="640" MinHeight="360"
+        Background="Black"
+        DragDrop.AllowDrop="True">
+
+    <Grid RowDefinitions="*,Auto">
+        <!-- GPU blend compositing surface (covers the full video area) -->
+        <controls:GpuBlendControl Grid.Row="0"
+                                  x:Name="BlendView" />
+
+        <!-- Drop indicator (over video area) -->
+        <Border Grid.Row="0"
+                x:Name="DropOverlay"
+                BorderBrush="#4488FF"
+                BorderThickness="0"
+                IsHitTestVisible="False" />
+
+        <!-- Control panel -->
+        <Border Grid.Row="1"
+                x:Name="ControlPanel"
+                Background="#CC000000"
+                Padding="12,8">
+            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                <!-- Playback controls -->
+                <StackPanel Grid.Row="0" Grid.Column="0"
+                            Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Center">
+                    <Button Content="Play/Pause"
+                            Command="{Binding PlayPauseCommand}"
+                            Padding="8,4"
+                            Background="Transparent"
+                            Foreground="White" />
+                    <Button Content="Stop"
+                            Command="{Binding StopCommand}"
+                            Padding="8,4"
+                            Background="Transparent"
+                            Foreground="White" />
+                </StackPanel>
+
+                <!-- Seek bar (driven by the primary player) -->
+                <Slider Grid.Row="0" Grid.Column="1"
+                        x:Name="SeekBar"
+                        Minimum="0"
+                        Maximum="{Binding PrimaryPlayer.Duration, Mode=OneWay}"
+                        Value="{Binding PrimaryPlayer.Position, Mode=OneWay}"
+                        Margin="12,0"
+                        VerticalAlignment="Center" />
+
+                <!-- Volume -->
+                <StackPanel Grid.Row="0" Grid.Column="2"
+                            Orientation="Horizontal" Spacing="4"
+                            VerticalAlignment="Center">
+                    <Button Content="Vol"
+                            Command="{Binding VolumeIconMouseDownCommand}"
+                            Padding="8,4"
+                            Background="Transparent"
+                            Foreground="White" />
+                    <Slider Minimum="0" Maximum="1"
+                            Value="{Binding MasterVolume}"
+                            Width="100"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Info bar: show both player file info -->
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                            Orientation="Horizontal" Spacing="16"
+                            Margin="0,4,0,0">
+                    <TextBlock Text="{Binding PlayerA.DisplayInfo}"
+                               Foreground="Gray" FontSize="11" />
+                    <TextBlock Text="{Binding PlayerB.DisplayInfo}"
+                               Foreground="#888888" FontSize="11" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

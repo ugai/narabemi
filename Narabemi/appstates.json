@@ -2,8 +2,7 @@
   "Loop": false,
   "AutoSync": true,
   "MainPlayerIndex": 0,
-  "VideoPathList": [
-  ],
+  "VideoPathList": [],
   "BlendBorderWidth": 1.0,
   "BlendBorderColor": "#fcfcfc"
 }

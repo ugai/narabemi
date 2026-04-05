@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace Narabemi.Settings
 {
     /// <summary>
-    /// load and save the AppState file.
+    /// Load and save the AppState file.
     /// </summary>
     public class AppStatesService
     {
@@ -78,6 +78,8 @@ namespace Narabemi.Settings
                 target.StatePlayers[i].VideoPath = Current.VideoPathList[i];
             target.BlendBorderWidth = Current.BlendBorderWidth;
             target.BlendBorderColor = Current.BlendBorderColor;
+            target.BlendRatio = Current.BlendRatio;
+            target.BlendMode = Current.BlendMode;
         }
 
         public void ApplyFrom(IAppStateTarget target)
@@ -91,6 +93,8 @@ namespace Narabemi.Settings
             Current.VideoPathList.AddRange(target.StatePlayers.Select(p => p.VideoPath));
             Current.BlendBorderWidth = target.BlendBorderWidth;
             Current.BlendBorderColor = target.BlendBorderColor;
+            Current.BlendRatio = target.BlendRatio;
+            Current.BlendMode = target.BlendMode;
         }
     }
 }

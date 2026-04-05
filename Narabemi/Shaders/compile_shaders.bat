@@ -1,24 +1,36 @@
-echo "%~nx0" START
-echo cd %~dp0
-pushd %~dp0
+@echo off
+setlocal
 
-echo Load VsDevCmd
-set VSWHERE="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-for /f "usebackq delims=" %%i in (`%VSWHERE% -latest -prerelease -property installationPath`) do (
-  if exist "%%i\Common7\Tools\vsdevcmd.bat" (
-    call "%%i\Common7\Tools\vsdevcmd.bat"
-  )
+:: Compile Narabemi D3D11 shaders using fxc.exe
+:: Run this script from the Narabemi/Shaders directory, or adjust paths below.
+
+:: Try fxc.exe in PATH first, fall back to Windows SDK location
+where fxc.exe >nul 2>&1
+if %errorlevel%==0 (
+    set FXC=fxc.exe
+) else (
+    set FXC=C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe
 )
+set OUT=%~dp0
 
-echo Compile Shader
+echo Compiling fullscreen_vs.hlsl (vs_5_0)...
+%FXC% /T vs_5_0 /E main /Fo "%OUT%fullscreen_vs.cso" "%OUT%fullscreen_vs.hlsl"
+if errorlevel 1 goto :error
 
-for %%f in (*.hlsl) do (
-    echo %%~nf
+echo Compiling blend_horizontal.hlsl (ps_5_0)...
+%FXC% /T ps_5_0 /E main /Fo "%OUT%blend_horizontal.cso" "%OUT%blend_horizontal.hlsl"
+if errorlevel 1 goto :error
 
-    :: NOTE:
-    ::   PS 3.0 doesn't support software rendering!!
-    fxc /T ps_2_0 /Fo "%%~nf.fxc" "%%~nf.hlsl"
-)
+echo Compiling blend_vertical.hlsl (ps_5_0)...
+%FXC% /T ps_5_0 /E main /Fo "%OUT%blend_vertical.cso" "%OUT%blend_vertical.hlsl"
+if errorlevel 1 goto :error
 
-popd
-echo "%~nx0" END
+echo All shaders compiled successfully.
+goto :end
+
+:error
+echo Shader compilation failed.
+exit /b 1
+
+:end
+endlocal

@@ -1,19 +1,28 @@
-// Blend vertical shader 
+// Vertical split blend shader (PS 5.0)
+// Ports Narabemi.Wpf/Shaders/blend_vertical.hlsl from PS 2.0 to D3D11 PS 5.0.
+// Shows texture0 on the top and texture1 on the bottom, split at `ratio`.
 
-sampler2D input0 : register(s0);
-sampler2D input1 : register(s1);
-float widthPx : register(c0);
-float heightPx : register(c1);
-float ratio : register(c2);
-float borderWidth : register(c3);
-float4 borderColor : register(c4);
+Texture2D    tex0     : register(t0);
+Texture2D    tex1     : register(t1);
+SamplerState sampler0 : register(s0);
 
-float4 main(float2 uv : TEXCOORD) : COLOR
+cbuffer BlendParams : register(b0)
 {
-    float4 color0 = tex2D(input0, uv);
-    float4 color1 = tex2D(input1, uv);
-    float4 color = lerp(color0, color1, step(ratio, uv.y));
-    return lerp(color, borderColor,
-        step(uv.y - (borderWidth / heightPx / 2.0f), ratio) *
-        step(ratio, uv.y + borderWidth / heightPx / 2.0f));
+    float widthPx;
+    float heightPx;
+    float ratio;
+    float borderWidth;
+    float4 borderColor;
+};
+
+float4 main(float2 uv : TEXCOORD0) : SV_Target
+{
+    float4 color0 = tex0.Sample(sampler0, uv);
+    float4 color1 = tex1.Sample(sampler0, uv);
+    float4 color  = lerp(color0, color1, step(ratio, uv.y));
+
+    // Border: lerp toward borderColor when within borderWidth/2 of the split line
+    float halfBorder = (borderWidth / heightPx) * 0.5f;
+    float inBorder = step(uv.y - halfBorder, ratio) * step(ratio, uv.y + halfBorder);
+    return lerp(color, borderColor, inBorder);
 }
