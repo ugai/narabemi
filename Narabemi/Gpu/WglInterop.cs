@@ -32,29 +32,50 @@ namespace Narabemi.Gpu
         internal static partial IntPtr GetProcAddress(string procName);
 
         // --- WGL_NV_DX_interop2 ---
-        // These are extension functions; pointers must be obtained at runtime via wglGetProcAddress.
+        // Extension function pointers are context-dependent; cache them on first call
+        // (which always happens during SetupGlContext with a valid current context).
+        // Calling wglGetProcAddress every frame is unsafe after mpv modifies GL state.
+
+        private static WglDXOpenDeviceFn? _fnDXOpenDevice;
+        private static WglDXCloseDeviceFn? _fnDXCloseDevice;
+        private static WglDXRegisterObjectFn? _fnDXRegisterObject;
+        private static WglDXUnregisterObjectFn? _fnDXUnregisterObject;
+        private static WglDXLockObjectsFn? _fnDXLockObjects;
+        private static WglDXUnlockObjectsFn? _fnDXUnlockObjects;
+
+        private static TDelegate CacheExt<TDelegate>(ref TDelegate? cache, string name) where TDelegate : Delegate
+        {
+            if (cache is not null) return cache;
+            var ptr = GetProcAddress(name);
+            if (ptr == IntPtr.Zero)
+                throw new EntryPointNotFoundException(
+                    $"WGL extension function '{name}' not found. " +
+                    "Ensure a valid WGL context is current and WGL_NV_DX_interop2 is supported.");
+            cache = Marshal.GetDelegateForFunctionPointer<TDelegate>(ptr);
+            return cache;
+        }
 
         internal static IntPtr WglDXOpenDeviceNV(IntPtr dxDevice) =>
-            CallExt<WglDXOpenDeviceFn>("wglDXOpenDeviceNV")(dxDevice);
+            CacheExt(ref _fnDXOpenDevice, "wglDXOpenDeviceNV")(dxDevice);
 
         internal static bool WglDXCloseDeviceNV(IntPtr hDevice) =>
-            CallExt<WglDXCloseDeviceFn>("wglDXCloseDeviceNV")(hDevice) != 0;
+            CacheExt(ref _fnDXCloseDevice, "wglDXCloseDeviceNV")(hDevice) != 0;
 
         internal static IntPtr WglDXRegisterObjectNV(IntPtr hDevice, IntPtr dxObject, uint name, uint type, uint access) =>
-            CallExt<WglDXRegisterObjectFn>("wglDXRegisterObjectNV")(hDevice, dxObject, name, type, access);
+            CacheExt(ref _fnDXRegisterObject, "wglDXRegisterObjectNV")(hDevice, dxObject, name, type, access);
 
         internal static bool WglDXUnregisterObjectNV(IntPtr hDevice, IntPtr hObject) =>
-            CallExt<WglDXUnregisterObjectFn>("wglDXUnregisterObjectNV")(hDevice, hObject) != 0;
+            CacheExt(ref _fnDXUnregisterObject, "wglDXUnregisterObjectNV")(hDevice, hObject) != 0;
 
         internal static unsafe bool WglDXLockObjectsNV(IntPtr hDevice, int count, IntPtr* hObjects) =>
-            CallExt<WglDXLockObjectsFn>("wglDXLockObjectsNV")(hDevice, count, hObjects) != 0;
+            CacheExt(ref _fnDXLockObjects, "wglDXLockObjectsNV")(hDevice, count, hObjects) != 0;
 
         internal static unsafe bool WglDXUnlockObjectsNV(IntPtr hDevice, int count, IntPtr* hObjects) =>
-            CallExt<WglDXUnlockObjectsFn>("wglDXUnlockObjectsNV")(hDevice, count, hObjects) != 0;
+            CacheExt(ref _fnDXUnlockObjects, "wglDXUnlockObjectsNV")(hDevice, count, hObjects) != 0;
 
         // WGL_NV_DX_interop access flags
-        internal const uint WGL_ACCESS_READ_ONLY_NV = 0x0000;
-        internal const uint WGL_ACCESS_READ_WRITE_NV = 0x0001;
+        internal const uint WGL_ACCESS_READ_ONLY_NV    = 0x0000;
+        internal const uint WGL_ACCESS_READ_WRITE_NV   = 0x0001;
         internal const uint WGL_ACCESS_WRITE_DISCARD_NV = 0x0002;
 
         // GL object types
@@ -80,15 +101,6 @@ namespace Narabemi.Gpu
 
         [UnmanagedFunctionPointer(CallingConvention.Winapi)]
         private unsafe delegate int WglDXUnlockObjectsFn(IntPtr hDevice, int count, IntPtr* hObjects);
-
-        private static TDelegate CallExt<TDelegate>(string name) where TDelegate : Delegate
-        {
-            var ptr = GetProcAddress(name);
-            if (ptr == IntPtr.Zero)
-                throw new EntryPointNotFoundException($"WGL extension function '{name}' not found. " +
-                    "Ensure a valid WGL context is current and WGL_NV_DX_interop2 is supported.");
-            return Marshal.GetDelegateForFunctionPointer<TDelegate>(ptr);
-        }
     }
 
     /// <summary>

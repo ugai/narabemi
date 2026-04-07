@@ -166,13 +166,13 @@ namespace Narabemi.Gpu
             GenTextures(texNames);
             _glTextureName = texNames[0];
 
-            // Register D3D11 texture with GL
+            // Register D3D11 texture with GL (READ_WRITE is more broadly supported than WRITE_DISCARD)
             _dxInteropObject = WglInterop.WglDXRegisterObjectNV(
                 _dxInteropDevice,
                 _texture!.Texture.NativePointer,
                 _glTextureName,
                 WglInterop.GL_TEXTURE_2D,
-                WglInterop.WGL_ACCESS_WRITE_DISCARD_NV);
+                WglInterop.WGL_ACCESS_READ_WRITE_NV);
 
             if (_dxInteropObject == IntPtr.Zero)
                 throw new InvalidOperationException("wglDXRegisterObjectNV failed.");
@@ -292,13 +292,18 @@ namespace Narabemi.Gpu
 
         private void RenderFrame()
         {
-            WglInterop.MakeCurrent(_hdc, _hglrc);
+            if (!WglInterop.MakeCurrent(_hdc, _hglrc))
+                throw new InvalidOperationException("wglMakeCurrent failed in RenderFrame.");
 
+            bool locked;
             unsafe
             {
                 var obj = _dxInteropObject;
-                WglInterop.WglDXLockObjectsNV(_dxInteropDevice, 1, &obj);
+                locked = WglInterop.WglDXLockObjectsNV(_dxInteropDevice, 1, &obj);
             }
+
+            if (!locked)
+                throw new InvalidOperationException("wglDXLockObjectsNV returned false in RenderFrame.");
 
             try
             {
