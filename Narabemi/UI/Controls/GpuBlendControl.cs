@@ -1,10 +1,9 @@
 using System;
-using System.Linq;
-using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
-using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -14,35 +13,24 @@ using Narabemi.ViewModels;
 namespace Narabemi.UI.Controls
 {
     /// <summary>
-    /// Avalonia control that displays the output of a <see cref="FrameSyncManager"/>
-    /// via the Avalonia Composition API (CompositionDrawingSurface + ICompositionGpuInterop).
-    ///
-    /// When a new blended frame is ready (fired from the D3D11 render thread), this control
-    /// imports the D3D11 shared texture into Avalonia's composition tree and presents it.
-    /// Zero CPU readback: the texture stays on the GPU throughout.
+    /// Displays the blended video output. Initialises the full GPU pipeline
+    /// (D3D11 device → mpv SW render → blend shaders) on first attach, then
+    /// copies each composited frame to a WriteableBitmap for display.
     /// </summary>
     public sealed class GpuBlendControl : Control
     {
         private readonly FrameSyncManager? _syncManager;
         private readonly ILogger<GpuBlendControl> _logger;
 
-        private Compositor? _compositor;
-        private CompositionDrawingSurface? _surface;
-        private CompositionSurfaceVisual? _surfaceVisual;
-        private ICompositionGpuInterop? _gpuInterop;
-        private ICompositionImportedGpuImage? _currentImportedImage;
-
+        private WriteableBitmap? _bitmap;
         private bool _initialized;
         private bool _frameScheduled;
 
-        /// <summary>
-        /// Parameterless constructor for XAML instantiation. Resolves dependencies from App.Services.
-        /// Falls back to no-ops when App.Services is not available (e.g., in unit tests).
-        /// </summary>
         public GpuBlendControl()
             : this(
                 App.Services?.GetService(typeof(FrameSyncManager)) as FrameSyncManager,
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<GpuBlendControl>.Instance)
+                App.Services?.GetService(typeof(ILogger<GpuBlendControl>)) as ILogger<GpuBlendControl>
+                    ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<GpuBlendControl>.Instance)
         {
         }
 
@@ -55,7 +43,7 @@ namespace Narabemi.UI.Controls
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
-            _ = InitializeCompositionAsync();
+            InitializePipeline();
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -63,52 +51,22 @@ namespace Narabemi.UI.Controls
             base.OnDetachedFromVisualTree(e);
             if (_syncManager != null)
                 _syncManager.BlendFrameReady -= OnBlendFrameReady;
-
-            _currentImportedImage = null;
-            ElementComposition.SetElementChildVisual(this, null);
         }
 
-        private async Task InitializeCompositionAsync()
+        private void InitializePipeline()
         {
-            var elementVisual = ElementComposition.GetElementVisual(this);
-            if (elementVisual is null) return;
-
-            _compositor = elementVisual.Compositor;
-
-            // Request the GPU interop interface — may return null if the backend doesn't support it
-            _gpuInterop = await _compositor.TryGetCompositionGpuInterop();
-
-            if (_gpuInterop is null)
-            {
-                _logger.LogError("ICompositionGpuInterop not available. " +
-                    "D3D11 composition requires the GPU-backed Avalonia renderer.");
-                return;
-            }
-
-            // Check that D3D11 global shared handle import is supported
-            if (!_gpuInterop.SupportedImageHandleTypes.Contains(
-                KnownPlatformGraphicsExternalImageHandleTypes.D3D11TextureGlobalSharedHandle))
-            {
-                _logger.LogError("D3D11TextureGlobalSharedHandle import not supported by this Avalonia backend.");
-                return;
-            }
-
-            // ---------------------------------------------------------------
-            // Bootstrap the GPU pipeline (D3D11 → WGL interop → mpv → blend)
-            // ---------------------------------------------------------------
             try
             {
                 // 1. D3D11 device
                 var d3d = App.Services?.GetService<D3D11DeviceManager>();
-                if (d3d is null) { _logger.LogError("D3D11DeviceManager not found in DI"); return; }
-                if (!d3d.IsInitialized)
-                    d3d.Initialize();
+                if (d3d is null) { _logger.LogError("D3D11DeviceManager not in DI"); return; }
+                if (!d3d.IsInitialized) d3d.Initialize();
 
-                // 2. mpv headless init (must happen before render context)
+                // 2. mpv headless init
                 App.Services?.GetKeyedService<VideoPlayerViewModel>("PlayerA")?.InitMpvHeadless();
                 App.Services?.GetKeyedService<VideoPlayerViewModel>("PlayerB")?.InitMpvHeadless();
 
-                // 3. GL renderer init (creates WGL context + FBO + mpv render ctx)
+                // 3. SW renderer init (mpv → CPU buffer → D3D11 dynamic texture)
                 const int W = 1280;
                 const int H = 720;
 
@@ -120,83 +78,60 @@ namespace Narabemi.UI.Controls
                 // 4. Blend renderer + frame sync
                 if (_syncManager is not null && rendererA is not null && rendererB is not null)
                     _syncManager.Initialize(W, H, rendererA, rendererB);
+
+                // 5. Bitmap for display
+                _bitmap = new WriteableBitmap(
+                    new PixelSize(W, H),
+                    new Vector(96, 96),
+                    Avalonia.Platform.PixelFormat.Bgra8888,
+                    AlphaFormat.Premul);
+
+                _initialized = true;
+                if (_syncManager != null)
+                    _syncManager.BlendFrameReady += OnBlendFrameReady;
+
+                _logger.LogInformation("GpuBlendControl initialized ({W}x{H})", W, H);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "GPU pipeline bootstrap failed");
-                return;
+                _logger.LogError(ex, "GpuBlendControl initialization failed");
             }
-
-            // Create composition surface and surface visual
-            _surface = _compositor.CreateDrawingSurface();
-            _surfaceVisual = _compositor.CreateSurfaceVisual();
-            _surfaceVisual.Surface = _surface;
-            _surfaceVisual.Size = new System.Numerics.Vector2((float)Bounds.Width, (float)Bounds.Height);
-
-            // Attach to the Avalonia visual tree
-            ElementComposition.SetElementChildVisual(this, _surfaceVisual);
-
-            _initialized = true;
-            if (_syncManager != null)
-                _syncManager.BlendFrameReady += OnBlendFrameReady;
-
-            _logger.LogInformation("GpuBlendControl composition initialized");
         }
 
         private void OnBlendFrameReady()
         {
-            // Fires on D3D11 render thread — schedule UI-thread update
             if (_frameScheduled) return;
             _frameScheduled = true;
-
             Dispatcher.UIThread.Post(PresentFrame, DispatcherPriority.Render);
         }
 
-        private async void PresentFrame()
+        private void PresentFrame()
         {
             _frameScheduled = false;
-
-            if (!_initialized || _gpuInterop is null || _surface is null) return;
-
-            var outputTexture = GetOutputTexture();
-            if (outputTexture is null || outputTexture.SharedHandle == IntPtr.Zero) return;
+            if (!_initialized || _bitmap is null) return;
 
             try
             {
-                _currentImportedImage = null;
+                var renderer = App.Services?.GetService(typeof(BlendRenderer)) as BlendRenderer;
+                if (renderer is null) return;
 
-                var props = new PlatformGraphicsExternalImageProperties
-                {
-                    Width = outputTexture.Width,
-                    Height = outputTexture.Height,
-                    Format = PlatformGraphicsExternalImageFormat.B8G8R8A8UNorm,
-                };
-
-                var handle = new PlatformHandle(
-                    outputTexture.SharedHandle,
-                    KnownPlatformGraphicsExternalImageHandleTypes.D3D11TextureGlobalSharedHandle);
-
-                _currentImportedImage = _gpuInterop.ImportImage(handle, props);
-                await _surface.UpdateAsync(_currentImportedImage);
+                using var fb = _bitmap.Lock();
+                renderer.ReadBackOutput(fb.Address, fb.RowBytes);
+                InvalidateVisual();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to present GPU frame");
+                _logger.LogError(ex, "Failed to present frame");
             }
         }
 
-        private GpuTexture? GetOutputTexture() =>
-            App.Services?.GetService(typeof(BlendRenderer)) is BlendRenderer renderer
-                ? renderer.OutputTexture
-                : null;
-
-        protected override void OnSizeChanged(SizeChangedEventArgs e)
+        public override void Render(DrawingContext context)
         {
-            base.OnSizeChanged(e);
-
-            if (_surfaceVisual is not null)
-                _surfaceVisual.Size = new System.Numerics.Vector2((float)e.NewSize.Width, (float)e.NewSize.Height);
+            base.Render(context);
+            if (_bitmap is not null)
+            {
+                context.DrawImage(_bitmap, new Rect(0, 0, Bounds.Width, Bounds.Height));
+            }
         }
     }
-
 }

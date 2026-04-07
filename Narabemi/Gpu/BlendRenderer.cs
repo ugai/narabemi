@@ -26,6 +26,7 @@ namespace Narabemi.Gpu
         private ID3D11Buffer? _constantBuffer;
         private ID3D11RenderTargetView? _outputRtv;
         private GpuTexture? _outputTexture;
+        private ID3D11Texture2D? _stagingTexture;
 
         private bool _disposed;
 
@@ -127,10 +128,55 @@ namespace Narabemi.Gpu
             }
         }
 
+        /// <summary>
+        /// Copies the latest composited frame to a CPU-side buffer (e.g., a locked WriteableBitmap).
+        /// </summary>
+        public unsafe void ReadBackOutput(IntPtr dest, int destStride)
+        {
+            if (_outputTexture is null || _stagingTexture is null) return;
+
+            lock (_deviceManager.ContextLock)
+            {
+                var ctx = _deviceManager.Context;
+                ctx.CopyResource(_stagingTexture, _outputTexture.Texture);
+
+                var mapped = ctx.Map(_stagingTexture, 0, Vortice.Direct3D11.MapMode.Read);
+                try
+                {
+                    var rowBytes = _outputTexture.Width * 4;
+                    for (int y = 0; y < _outputTexture.Height; y++)
+                    {
+                        Buffer.MemoryCopy(
+                            (void*)(mapped.DataPointer + (long)y * mapped.RowPitch),
+                            (void*)(dest + (long)y * destStride),
+                            destStride, rowBytes);
+                    }
+                }
+                finally
+                {
+                    ctx.Unmap(_stagingTexture, 0);
+                }
+            }
+        }
+
         private void CreateOutputResources(int width, int height)
         {
             var device = _deviceManager.Device;
             _outputTexture = _deviceManager.CreateOutputTexture(width, height);
+
+            // Staging texture for CPU readback
+            _stagingTexture?.Dispose();
+            _stagingTexture = device.CreateTexture2D(new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                CPUAccessFlags = CpuAccessFlags.Read,
+            });
 
             var rtvDesc = new RenderTargetViewDescription
             {
@@ -154,6 +200,7 @@ namespace Narabemi.Gpu
             if (_disposed) return;
             _disposed = true;
 
+            _stagingTexture?.Dispose();
             _outputRtv?.Dispose();
             _outputTexture?.Dispose();
             _constantBuffer?.Dispose();
