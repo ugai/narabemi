@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -98,12 +99,18 @@ namespace Narabemi.UI.Controls
             }
         }
 
+        private int _blendCount;
+
         private void OnBlendFrameReady()
         {
+            if (Interlocked.Increment(ref _blendCount) == 1)
+                _logger.LogInformation("BlendFrameReady fired (first composite)");
             if (_frameScheduled) return;
             _frameScheduled = true;
             Dispatcher.UIThread.Post(PresentFrame, DispatcherPriority.Render);
         }
+
+        private int _presentCount;
 
         private void PresentFrame()
         {
@@ -113,10 +120,14 @@ namespace Narabemi.UI.Controls
             try
             {
                 var renderer = App.Services?.GetService(typeof(BlendRenderer)) as BlendRenderer;
-                if (renderer is null) return;
+                if (renderer is null) { _logger.LogWarning("BlendRenderer is null in PresentFrame"); return; }
 
                 using var fb = _bitmap.Lock();
                 renderer.ReadBackOutput(fb.Address, fb.RowBytes);
+
+                if (Interlocked.Increment(ref _presentCount) == 1)
+                    _logger.LogInformation("PresentFrame: first frame written to bitmap, calling InvalidateVisual");
+
                 InvalidateVisual();
             }
             catch (Exception ex)

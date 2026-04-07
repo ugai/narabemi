@@ -28,6 +28,11 @@ namespace Narabemi.Gpu
         private GpuTexture? _outputTexture;
         private ID3D11Texture2D? _stagingTexture;
 
+        // CPU-side copy of the latest composited frame (filled on render thread, read on UI thread)
+        private byte[]? _cpuOutput;
+        private int _cpuOutputStride;
+        private readonly object _cpuOutputLock = new();
+
         private bool _disposed;
 
         public GpuTexture? OutputTexture => _outputTexture;
@@ -125,36 +130,71 @@ namespace Narabemi.Gpu
                 // Unbind SRVs and RTV to avoid validation warnings
                 ctx.PSSetShaderResources(0, new ID3D11ShaderResourceView[] { null!, null! });
                 ctx.OMSetRenderTargets(Array.Empty<ID3D11RenderTargetView>(), null);
+
+                // Immediate readback to CPU buffer (stays on render thread, no UI blocking)
+                if (_stagingTexture is not null)
+                {
+                    ctx.CopyResource(_stagingTexture, _outputTexture.Texture);
+                    var readback = ctx.Map(_stagingTexture, 0, Vortice.Direct3D11.MapMode.Read);
+                    try
+                    {
+                        var w = _outputTexture.Width;
+                        var h = _outputTexture.Height;
+                        var rowBytes = w * 4;
+
+                        lock (_cpuOutputLock)
+                        {
+                            if (_cpuOutput is null || _cpuOutput.Length != h * rowBytes)
+                            {
+                                _cpuOutput = new byte[h * rowBytes];
+                                _cpuOutputStride = rowBytes;
+                            }
+
+                            unsafe
+                            {
+                                fixed (byte* dst = _cpuOutput)
+                                {
+                                    for (int y = 0; y < h; y++)
+                                    {
+                                        Buffer.MemoryCopy(
+                                            (void*)(readback.DataPointer + (long)y * readback.RowPitch),
+                                            dst + (long)y * rowBytes,
+                                            rowBytes, rowBytes);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        ctx.Unmap(_stagingTexture, 0);
+                    }
+                }
             }
         }
 
         /// <summary>
-        /// Copies the latest composited frame to a CPU-side buffer (e.g., a locked WriteableBitmap).
+        /// Copies the latest composited frame to a destination buffer (e.g., a locked WriteableBitmap).
+        /// Fast: reads from the CPU-side cache (no D3D11 calls, no GPU sync, safe for UI thread).
         /// </summary>
         public unsafe void ReadBackOutput(IntPtr dest, int destStride)
         {
-            if (_outputTexture is null || _stagingTexture is null) return;
-
-            lock (_deviceManager.ContextLock)
+            lock (_cpuOutputLock)
             {
-                var ctx = _deviceManager.Context;
-                ctx.CopyResource(_stagingTexture, _outputTexture.Texture);
+                if (_cpuOutput is null || _outputTexture is null) return;
 
-                var mapped = ctx.Map(_stagingTexture, 0, Vortice.Direct3D11.MapMode.Read);
-                try
+                var rowBytes = _outputTexture.Width * 4;
+                var h = _outputTexture.Height;
+
+                fixed (byte* src = _cpuOutput)
                 {
-                    var rowBytes = _outputTexture.Width * 4;
-                    for (int y = 0; y < _outputTexture.Height; y++)
+                    for (int y = 0; y < h; y++)
                     {
                         Buffer.MemoryCopy(
-                            (void*)(mapped.DataPointer + (long)y * mapped.RowPitch),
+                            src + (long)y * _cpuOutputStride,
                             (void*)(dest + (long)y * destStride),
                             destStride, rowBytes);
                     }
-                }
-                finally
-                {
-                    ctx.Unmap(_stagingTexture, 0);
                 }
             }
         }
