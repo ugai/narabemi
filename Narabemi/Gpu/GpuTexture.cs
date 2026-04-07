@@ -33,8 +33,17 @@ namespace Narabemi.Gpu
             Height = height;
             _logger = logger;
 
-            using var dxgiResource = texture.QueryInterface<IDXGIResource>();
-            SharedHandle = dxgiResource.SharedHandle;
+            // Dynamic textures (no MiscFlags.Shared) return zero or throw; that's fine —
+            // SharedHandle is only needed for the blend output texture (Avalonia presentation).
+            try
+            {
+                using var dxgiResource = texture.QueryInterface<IDXGIResource>();
+                SharedHandle = dxgiResource.SharedHandle;
+            }
+            catch
+            {
+                SharedHandle = IntPtr.Zero;
+            }
         }
 
         public void Dispose()

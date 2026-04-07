@@ -88,6 +88,68 @@ namespace Narabemi.Mpv
         }
 
         /// <summary>
+        /// Creates the mpv render context for software (CPU) rendering.
+        /// No GL context or window handle required.
+        /// </summary>
+        public void CreateSWRenderContext(MpvRenderUpdateFn updateCallback)
+        {
+            EnsureInit();
+
+            var apiTypeStr = Marshal.StringToCoTaskMemAnsi("sw");
+            try
+            {
+                var paramArray = new MpvRenderParam[]
+                {
+                    new(MpvRenderParamType.ApiType, apiTypeStr),
+                    MpvRenderParam.Terminator,
+                };
+
+                var handle = GCHandle.Alloc(paramArray, GCHandleType.Pinned);
+                try
+                {
+                    CheckError(MpvRenderApi.RenderContextCreate(out _renderCtx, _ctx, handle.AddrOfPinnedObject()));
+                }
+                finally { handle.Free(); }
+            }
+            finally { Marshal.FreeCoTaskMem(apiTypeStr); }
+
+            MpvRenderApi.RenderContextSetUpdateCallback(_renderCtx, updateCallback, IntPtr.Zero);
+        }
+
+        /// <summary>
+        /// Renders the current video frame into a CPU-side pixel buffer (SW mode).
+        /// </summary>
+        public unsafe void RenderFrameSW(IntPtr bufferPtr, long strideBytes, int width, int height)
+        {
+            if (_renderCtx == IntPtr.Zero) return;
+
+            var sizeArr = new int[] { width, height };
+            var stride = strideBytes;
+
+            var formatStr = Marshal.StringToCoTaskMemAnsi("bgra");
+            var sizeHandle = GCHandle.Alloc(sizeArr, GCHandleType.Pinned);
+            try
+            {
+                var paramArray = new MpvRenderParam[]
+                {
+                    new(MpvRenderParamType.SwSize,    sizeHandle.AddrOfPinnedObject()),
+                    new(MpvRenderParamType.SwFormat,  formatStr),
+                    new(MpvRenderParamType.SwStride,  (IntPtr)(&stride)),
+                    new(MpvRenderParamType.SwPointer, bufferPtr),
+                    MpvRenderParam.Terminator,
+                };
+
+                fixed (MpvRenderParam* ptr = paramArray)
+                    MpvRenderApi.RenderContextRender(_renderCtx, (IntPtr)ptr);
+            }
+            finally
+            {
+                sizeHandle.Free();
+                Marshal.FreeCoTaskMem(formatStr);
+            }
+        }
+
+        /// <summary>
         /// Renders the current video frame into the specified FBO.
         /// Must be called from the thread that owns the GL context.
         /// </summary>

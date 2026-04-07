@@ -80,48 +80,51 @@ namespace Narabemi.Gpu
         }
 
         /// <summary>
-        /// Renders the blend pass. Must be called from the D3D11 thread.
+        /// Renders the blend pass. Thread-safe: acquires ContextLock internally.
         /// </summary>
         public void Render(ID3D11ShaderResourceView srvA, ID3D11ShaderResourceView srvB, BlendParams p)
         {
             if (_outputRtv is null || _vs is null || _psActive is null || _outputTexture is null) return;
 
-            var ctx = _deviceManager.Context;
+            lock (_deviceManager.ContextLock)
+            {
+                var ctx = _deviceManager.Context;
 
-            // Update constant buffer via Map/Unmap (dynamic usage, write-discard)
-            var mapped = ctx.Map(_constantBuffer!, MapMode.WriteDiscard);
-            Marshal.StructureToPtr(p, mapped.DataPointer, false);
-            ctx.Unmap(_constantBuffer!, 0);
+                // Update constant buffer via Map/Unmap (dynamic usage, write-discard)
+                var mapped = ctx.Map(_constantBuffer!, MapMode.WriteDiscard);
+                Marshal.StructureToPtr(p, mapped.DataPointer, false);
+                ctx.Unmap(_constantBuffer!, 0);
 
-            // IA: no vertex buffer, fullscreen triangle
-            ctx.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
-            ctx.IASetInputLayout(null);
+                // IA: no vertex buffer, fullscreen triangle
+                ctx.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+                ctx.IASetInputLayout(null);
 
-            // VS + PS
-            ctx.VSSetShader(_vs, null, 0);
-            ctx.PSSetShader(_psActive, null, 0);
+                // VS + PS
+                ctx.VSSetShader(_vs, null, 0);
+                ctx.PSSetShader(_psActive, null, 0);
 
-            // SRVs: bind srvA to slot 0, srvB to slot 1
-            ctx.PSSetShaderResources(0, new[] { srvA, srvB });
+                // SRVs: bind srvA to slot 0, srvB to slot 1
+                ctx.PSSetShaderResources(0, new[] { srvA, srvB });
 
-            // Sampler slot 0
-            ctx.PSSetSamplers(0, new[] { _sampler! });
+                // Sampler slot 0
+                ctx.PSSetSamplers(0, new[] { _sampler! });
 
-            // Constant buffer slot 0
-            ctx.PSSetConstantBuffers(0, new[] { _constantBuffer! });
+                // Constant buffer slot 0
+                ctx.PSSetConstantBuffers(0, new[] { _constantBuffer! });
 
-            // OM: single RTV, no depth
-            ctx.OMSetRenderTargets(new[] { _outputRtv }, null);
+                // OM: single RTV, no depth
+                ctx.OMSetRenderTargets(new[] { _outputRtv }, null);
 
-            // Viewport
-            ctx.RSSetViewports(new[] { new Viewport(0, 0, _outputTexture.Width, _outputTexture.Height) });
+                // Viewport
+                ctx.RSSetViewports(new[] { new Viewport(0, 0, _outputTexture.Width, _outputTexture.Height) });
 
-            // Draw fullscreen triangle (3 vertices, no VB)
-            ctx.Draw(3, 0);
+                // Draw fullscreen triangle (3 vertices, no VB)
+                ctx.Draw(3, 0);
 
-            // Unbind SRVs and RTV to avoid validation warnings
-            ctx.PSSetShaderResources(0, new ID3D11ShaderResourceView[] { null!, null! });
-            ctx.OMSetRenderTargets(Array.Empty<ID3D11RenderTargetView>(), null);
+                // Unbind SRVs and RTV to avoid validation warnings
+                ctx.PSSetShaderResources(0, new ID3D11ShaderResourceView[] { null!, null! });
+                ctx.OMSetRenderTargets(Array.Empty<ID3D11RenderTargetView>(), null);
+            }
         }
 
         private void CreateOutputResources(int width, int height)

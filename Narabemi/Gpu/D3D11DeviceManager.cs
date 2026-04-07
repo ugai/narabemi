@@ -21,6 +21,12 @@ namespace Narabemi.Gpu
         public ID3D11DeviceContext Context => _context ?? throw new InvalidOperationException("D3D11 context not initialized.");
         public bool IsInitialized => _device != null;
 
+        /// <summary>
+        /// Must be held whenever calling methods on Context from multiple threads.
+        /// D3D11 immediate context is not thread-safe.
+        /// </summary>
+        public readonly object ContextLock = new();
+
         public D3D11DeviceManager(ILogger<D3D11DeviceManager> logger)
         {
             _logger = logger;
