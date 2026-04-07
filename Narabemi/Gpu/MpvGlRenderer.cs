@@ -107,7 +107,14 @@ namespace Narabemi.Gpu
                 if (!_frameAvailable) continue;
 
                 _frameAvailable = false;
-                RenderFrame();
+                try
+                {
+                    RenderFrame();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "RenderFrame failed");
+                }
             }
 
             TeardownGlContext();
@@ -204,19 +211,28 @@ namespace Narabemi.Gpu
 
         private void SetupMpvRenderContext()
         {
-            // Get proc address via wglGetProcAddress (context must be current)
+            // Load opengl32.dll once for core function fallback
+            var opengl32 = NativeLibrary.Load("opengl32.dll");
+
+            // IMPORTANT: This delegate is called from native mpv code (reverse P/Invoke).
+            // Any exception that escapes into native frames causes the CLR to failfast the process.
+            // The try-catch and TryGetExport are both required for safety.
             MpvOpenGlGetProcAddressFn getProcAddr = (_, namePtr) =>
             {
-                var name = Marshal.PtrToStringAnsi(namePtr) ?? string.Empty;
-                var ptr = WglInterop.GetProcAddress(name);
-                if (ptr == IntPtr.Zero)
+                try
                 {
-                    // Some core functions are in opengl32.dll, not the ICD
-                    ptr = NativeLibrary.GetExport(NativeLibrary.Load("opengl32.dll"), name) == IntPtr.Zero
-                        ? IntPtr.Zero
-                        : NativeLibrary.GetExport(NativeLibrary.Load("opengl32.dll"), name);
+                    var name = Marshal.PtrToStringAnsi(namePtr) ?? string.Empty;
+                    // Try the ICD driver first (handles all OpenGL extensions)
+                    var ptr = WglInterop.GetProcAddress(name);
+                    if (ptr != IntPtr.Zero) return ptr;
+                    // Fall back to opengl32.dll for core legacy functions (glGetError, etc.)
+                    NativeLibrary.TryGetExport(opengl32, name, out ptr);
+                    return ptr;
                 }
-                return ptr;
+                catch
+                {
+                    return IntPtr.Zero;
+                }
             };
 
             var getProcAddrHandle = GCHandle.Alloc(getProcAddr);
@@ -263,10 +279,15 @@ namespace Narabemi.Gpu
             }
         }
 
+        // Called from native mpv code — must never throw (would failfast the process).
         private void OnMpvUpdate(IntPtr _)
         {
-            _frameAvailable = true;
-            _renderRequest.Set();
+            try
+            {
+                _frameAvailable = true;
+                _renderRequest.Set();
+            }
+            catch { /* swallow — cannot let exceptions escape to native caller */ }
         }
 
         private void RenderFrame()
