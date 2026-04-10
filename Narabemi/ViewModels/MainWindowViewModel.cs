@@ -168,26 +168,12 @@ namespace Narabemi.ViewModels
 
         partial void OnBlendModeChanged(int value)
         {
-            _frameSyncManager?.UpdateBlendMode((BlendMode)value);
+            // BlendMode is read by GpuBlendControl during CPU blend; no push needed.
         }
 
         private void PushBlendParams()
         {
-            if (_frameSyncManager is null || _blendRenderer?.OutputTexture is null) return;
-
-            var p = new BlendParams
-            {
-                WidthPx = _blendRenderer.OutputTexture.Width,
-                HeightPx = _blendRenderer.OutputTexture.Height,
-                Ratio = (float)BlendRatio,
-                BorderWidth = (float)BlendBorderWidth,
-                BorderColor = new System.Numerics.Vector4(
-                    BlendBorderColor.R / 255f,
-                    BlendBorderColor.G / 255f,
-                    BlendBorderColor.B / 255f,
-                    BlendBorderColor.A / 255f),
-            };
-            _frameSyncManager.UpdateBlendParams(p);
+            // BlendRatio/BorderWidth/BorderColor are read by GpuBlendControl during CPU blend.
         }
 
         [RelayCommand]

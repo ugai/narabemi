@@ -119,9 +119,9 @@ namespace Narabemi.Mpv
         /// <summary>
         /// Renders the current video frame into a CPU-side pixel buffer (SW mode).
         /// </summary>
-        public unsafe void RenderFrameSW(IntPtr bufferPtr, long strideBytes, int width, int height)
+        public unsafe int RenderFrameSW(IntPtr bufferPtr, long strideBytes, int width, int height)
         {
-            if (_renderCtx == IntPtr.Zero) return;
+            if (_renderCtx == IntPtr.Zero) return -1;
 
             var sizeArr = new int[] { width, height };
             var stride = strideBytes;
@@ -139,8 +139,10 @@ namespace Narabemi.Mpv
                     MpvRenderParam.Terminator,
                 };
 
+                int result;
                 fixed (MpvRenderParam* ptr = paramArray)
-                    MpvRenderApi.RenderContextRender(_renderCtx, (IntPtr)ptr);
+                    result = MpvRenderApi.RenderContextRender(_renderCtx, (IntPtr)ptr);
+                return result;
             }
             finally
             {

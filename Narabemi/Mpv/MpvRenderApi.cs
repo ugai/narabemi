@@ -79,13 +79,11 @@ namespace Narabemi.Mpv
         DrmDisplay = 14,
         DrmDrawSurfaceSize = 15,
         DrmDisplayV2 = 16,
-        SoftwareColorspace = 17,
-        EnableDepthBuffer = 18,
         // Software render API (MPV_RENDER_API_TYPE_SW)
-        SwSize = 19,      // int[2]: { width, height }
-        SwFormat = 20,    // char*: pixel format string, e.g. "bgra"
-        SwStride = 21,    // size_t*: bytes per row
-        SwPointer = 22,   // void*: output pixel buffer
+        SwSize = 17,      // int[2]: { width, height }
+        SwFormat = 18,    // char*: pixel format string, e.g. "bgra"
+        SwStride = 19,    // size_t*: bytes per row
+        SwPointer = 20,   // void*: output pixel buffer
     }
 
     /// <summary>

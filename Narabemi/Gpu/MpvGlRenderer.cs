@@ -45,6 +45,10 @@ namespace Narabemi.Gpu
         /// <summary>The D3D11 SRV for the latest rendered frame.</summary>
         public GpuTexture? Texture => _texture;
 
+        /// <summary>Raw CPU frame buffer (BGRA, stride = Width*4). Used by CpuBlender.</summary>
+        public byte[]? FrameBuffer => _frameBuffer;
+        public int FrameStride => _stride;
+
         public MpvGlRenderer(MpvPlayer player, D3D11DeviceManager deviceManager, ILogger<MpvGlRenderer> logger)
         {
             _player = player;
@@ -98,15 +102,11 @@ namespace Narabemi.Gpu
             _logger.LogInformation("MpvGlRenderer (SW) initialized ({W}x{H})", width, height);
         }
 
-        private int _updateCount;
-
         // Called from native mpv — must never throw (would failfast the process).
         private void OnMpvUpdate(IntPtr _)
         {
             try
             {
-                if (Interlocked.Increment(ref _updateCount) == 1)
-                    _logger.LogInformation("mpv update callback fired (first frame signal)");
                 _frameAvailable = true;
                 _renderRequest.Set();
             }
@@ -170,8 +170,6 @@ namespace Narabemi.Gpu
             }
 
             // 3. Notify FrameSyncManager that a new frame is available
-            if (_updateCount <= 2)
-                _logger.LogInformation("SW frame rendered and uploaded to D3D11");
             FrameRendered?.Invoke();
         }
 
