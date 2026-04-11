@@ -100,7 +100,7 @@
                             Width="100"
                             VerticalAlignment="Center" />
                     <Button x:Name="BlendModeButton"
-                            Content="H/V"
+                            Content="{Binding BlendModeLabel}"
                             Padding="8,2"
                             Background="Transparent"
                             Foreground="White"

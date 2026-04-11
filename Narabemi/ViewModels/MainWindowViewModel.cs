@@ -181,7 +181,9 @@ namespace Narabemi.ViewModels
             PlayerB.UpdateActualVolume(MasterVolume, value);
         }
 
-        partial void OnBlendModeChanged(int value) { }  // read by GpuBlendControl each frame
+        public string BlendModeLabel => BlendMode == 0 ? "Horizontal" : "Vertical";
+
+        partial void OnBlendModeChanged(int value) => OnPropertyChanged(nameof(BlendModeLabel));
 
         /// <summary>
         /// Seeks the primary player to <paramref name="seconds"/>.
