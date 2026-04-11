@@ -31,6 +31,14 @@ namespace Narabemi.Gpu
         [LibraryImport(Opengl32, EntryPoint = "wglGetProcAddress", StringMarshalling = StringMarshalling.Utf8)]
         internal static partial IntPtr GetProcAddress(string procName);
 
+        // Core GL 1.1 texture functions (exported directly from opengl32.dll,
+        // not via wglGetProcAddress which may return null for core functions)
+        [LibraryImport(Opengl32, EntryPoint = "glGenTextures")]
+        internal static partial void GenTextures(int n, [Out] uint[] textures);
+
+        [LibraryImport(Opengl32, EntryPoint = "glDeleteTextures")]
+        internal static partial void DeleteTextures(int n, uint[] textures);
+
         // --- WGL_NV_DX_interop2 ---
         // Extension function pointers are context-dependent; cache them on first call
         // (which always happens during SetupGlContext with a valid current context).

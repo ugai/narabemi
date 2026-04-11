@@ -85,7 +85,8 @@ namespace Narabemi.Gpu
         }
 
         /// <summary>
-        /// Copies Dynamic input textures to intermediate Default textures.
+        /// Copies input textures to intermediate Default R8G8B8A8 textures for CS reading.
+        /// Handles single-video mode by duplicating the one texture to both slots.
         /// Caller must hold ContextLock.
         /// </summary>
         public void PrepareInputs(ID3D11Texture2D? dynA, ID3D11Texture2D? dynB)
@@ -211,7 +212,9 @@ namespace Narabemi.Gpu
             _stagingTex = device.CreateTexture2D(stagingDesc);
             _cpuOutput  = new byte[height * width * 4];
 
-            // Intermediate Default copies of the mpv Dynamic input textures
+            // Intermediate Default copies of the mpv input textures (RGBA format).
+            // R8G8B8A8_UNorm matches both the SW render path ("rgba" format) and the
+            // GL interop texture format, so CopyResource (same-format) always succeeds.
             _inputSrvA?.Dispose(); _inputCopyA?.Dispose();
             _inputSrvB?.Dispose(); _inputCopyB?.Dispose();
             var inputDesc = new Texture2DDescription
@@ -220,7 +223,7 @@ namespace Narabemi.Gpu
                 Height = (uint)height,
                 MipLevels = 1,
                 ArraySize = 1,
-                Format = Format.B8G8R8A8_UNorm,
+                Format = Format.R8G8B8A8_UNorm,
                 SampleDescription = new SampleDescription(1, 0),
                 Usage = ResourceUsage.Default,
                 BindFlags = BindFlags.ShaderResource,
