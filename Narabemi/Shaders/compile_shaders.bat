@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-:: Compile Narabemi D3D11 shaders using fxc.exe
+:: Compile Narabemi D3D11 compute shaders using fxc.exe
 :: Run this script from the Narabemi/Shaders directory, or adjust paths below.
 
 :: Try fxc.exe in PATH first, fall back to Windows SDK location
@@ -13,16 +13,12 @@ if %errorlevel%==0 (
 )
 set OUT=%~dp0
 
-echo Compiling fullscreen_vs.hlsl (vs_5_0)...
-%FXC% /T vs_5_0 /E main /Fo "%OUT%fullscreen_vs.cso" "%OUT%fullscreen_vs.hlsl"
+echo Compiling blend_horizontal_cs.hlsl (cs_5_0)...
+%FXC% /T cs_5_0 /E main /Fo "%OUT%blend_horizontal_cs.cso" "%OUT%blend_horizontal_cs.hlsl"
 if errorlevel 1 goto :error
 
-echo Compiling blend_horizontal.hlsl (ps_5_0)...
-%FXC% /T ps_5_0 /E main /Fo "%OUT%blend_horizontal.cso" "%OUT%blend_horizontal.hlsl"
-if errorlevel 1 goto :error
-
-echo Compiling blend_vertical.hlsl (ps_5_0)...
-%FXC% /T ps_5_0 /E main /Fo "%OUT%blend_vertical.cso" "%OUT%blend_vertical.hlsl"
+echo Compiling blend_vertical_cs.hlsl (cs_5_0)...
+%FXC% /T cs_5_0 /E main /Fo "%OUT%blend_vertical_cs.cso" "%OUT%blend_vertical_cs.hlsl"
 if errorlevel 1 goto :error
 
 echo All shaders compiled successfully.
