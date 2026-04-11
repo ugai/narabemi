@@ -47,14 +47,23 @@
                             Foreground="White" />
                 </StackPanel>
 
-                <!-- Seek bar (driven by the primary player) -->
-                <Slider Grid.Row="0" Grid.Column="1"
-                        x:Name="SeekBar"
-                        Minimum="0"
-                        Maximum="{Binding PrimaryPlayer.Duration, Mode=OneWay}"
-                        Value="{Binding PrimaryPlayer.Position, Mode=OneWay}"
-                        Margin="12,0"
-                        VerticalAlignment="Center" />
+                <!-- Seek bar + time display (driven by the primary player) -->
+                <Grid Grid.Row="0" Grid.Column="1"
+                      ColumnDefinitions="*,Auto"
+                      Margin="12,0">
+                    <Slider Grid.Column="0"
+                            x:Name="SeekBar"
+                            Minimum="0"
+                            Maximum="{Binding PrimaryPlayer.Duration, Mode=OneWay}"
+                            Value="{Binding PrimaryPlayer.Position, Mode=OneWay}"
+                            VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding PrimaryPlayer.TimeDisplay, Mode=OneWay}"
+                               Foreground="#AAAAAA" FontSize="11"
+                               Margin="8,0,0,0"
+                               VerticalAlignment="Center"
+                               FontFamily="Consolas,Courier New,monospace" />
+                </Grid>
 
                 <!-- Volume -->
                 <StackPanel Grid.Row="0" Grid.Column="2"

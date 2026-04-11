@@ -42,6 +42,17 @@ namespace Narabemi.ViewModels
 
         private bool _isSeeking;
 
+        public string TimeDisplay => $"{FormatTime(Position)} / {FormatTime(Duration)}";
+
+        private static string FormatTime(double totalSeconds)
+        {
+            if (totalSeconds < 0) totalSeconds = 0;
+            var ts = TimeSpan.FromSeconds(totalSeconds);
+            return ts.TotalHours >= 1
+                ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
+                : $"{ts.Minutes}:{ts.Seconds:D2}";
+        }
+
         public MpvPlayer MpvPlayer => _mpvPlayer;
 
         public VideoPlayerViewModel(MpvPlayer mpvPlayer, ILogger<VideoPlayerViewModel> logger)
@@ -115,6 +126,9 @@ namespace Narabemi.ViewModels
             if (paused != IsPaused)
                 IsPaused = paused;
         }
+
+        partial void OnPositionChanged(double value) => OnPropertyChanged(nameof(TimeDisplay));
+        partial void OnDurationChanged(double value) => OnPropertyChanged(nameof(TimeDisplay));
 
         partial void OnVideoPathChanged(string value)
         {
