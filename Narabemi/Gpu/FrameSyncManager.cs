@@ -109,17 +109,15 @@ namespace Narabemi.Gpu
 
         private void RunGpuBlend()
         {
-            var srvA = _rendererA?.Texture?.Srv;
-            var srvB = _rendererB?.Texture?.Srv;
-            if (srvA is null && srvB is null) return;
-
-            // If only one source, use it for both slots (shader will show it based on ratio)
-            var effectiveSrvA = srvA ?? srvB!;
-            var effectiveSrvB = srvB ?? srvA!;
+            var texA = _rendererA?.Texture?.Texture;
+            var texB = _rendererB?.Texture?.Texture;
+            if (texA is null && texB is null) return;
 
             lock (_deviceManager.ContextLock)
             {
-                _blend.Render(effectiveSrvA, effectiveSrvB, _currentParams);
+                // CopyResource: Dynamic → Default (workaround for driver sampling issue)
+                _blend.PrepareInputs(texA, texB);
+                _blend.Render(_currentParams);
                 _blend.ReadBackOutput();
             }
         }

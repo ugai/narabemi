@@ -29,6 +29,15 @@ namespace Narabemi.Gpu
         private ID3D11Texture2D? _stagingTexture;
         private byte[]? _cpuOutput;
         private readonly object _cpuOutputLock = new();
+
+        // Intermediate Default-usage copies of the Dynamic input textures.
+        // Dynamic textures cannot be sampled correctly by the shader on some drivers
+        // due to internal memory layout differences. We CopyResource to Default first.
+        private ID3D11Texture2D? _inputCopyA;
+        private ID3D11Texture2D? _inputCopyB;
+        private ID3D11ShaderResourceView? _inputSrvA;
+        private ID3D11ShaderResourceView? _inputSrvB;
+
         private bool _disposed;
 
         public GpuTexture? OutputTexture => _outputTexture;
@@ -88,20 +97,35 @@ namespace Narabemi.Gpu
         }
 
         /// <summary>
-        /// Renders the blend pass. Caller must hold ContextLock.
+        /// Copies Dynamic input textures to intermediate Default textures for shader sampling.
+        /// Caller must hold ContextLock.
         /// </summary>
-        public void Render(ID3D11ShaderResourceView srvA, ID3D11ShaderResourceView srvB, BlendParams p)
+        public void PrepareInputs(ID3D11Texture2D? dynA, ID3D11Texture2D? dynB)
+        {
+            var ctx = _deviceManager.Context;
+            var effectiveA = dynA ?? dynB!;
+            var effectiveB = dynB ?? dynA!;
+            ctx.CopyResource(_inputCopyA!, effectiveA);
+            ctx.CopyResource(_inputCopyB!, effectiveB);
+        }
+
+        /// <summary>
+        /// Renders the blend pass using the pre-copied Default input textures.
+        /// Caller must hold ContextLock. Call PrepareInputs() first.
+        /// </summary>
+        public void Render(BlendParams p)
         {
             if (_outputRtv is null || _vs is null || _psActive is null || _outputTexture is null) return;
+            if (_inputSrvA is null || _inputSrvB is null) return;
 
             var ctx = _deviceManager.Context;
 
-            // Update constant buffer via Map/Unmap (dynamic usage, write-discard)
+            // Update constant buffer
             var mapped = ctx.Map(_constantBuffer!, MapMode.WriteDiscard);
             Marshal.StructureToPtr(p, mapped.DataPointer, false);
             ctx.Unmap(_constantBuffer!, 0);
 
-            // IA: no vertex buffer, fullscreen triangle
+            // IA: no vertex buffer
             ctx.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
             ctx.IASetInputLayout(null);
 
@@ -109,25 +133,19 @@ namespace Narabemi.Gpu
             ctx.VSSetShader(_vs, null, 0);
             ctx.PSSetShader(_psActive, null, 0);
 
-            // SRVs: bind srvA to slot 0, srvB to slot 1
-            ctx.PSSetShaderResources(0, new[] { srvA, srvB });
-
-            // Sampler slot 0
+            // SRVs from Default (not Dynamic) textures
+            ctx.PSSetShaderResources(0, new[] { _inputSrvA, _inputSrvB });
             ctx.PSSetSamplers(0, new[] { _sampler! });
-
-            // Constant buffer slot 0
             ctx.PSSetConstantBuffers(0, new[] { _constantBuffer! });
 
-            // OM: single RTV, no depth
+            // OM + Viewport
             ctx.OMSetRenderTargets(new[] { _outputRtv }, null);
-
-            // Viewport
             ctx.RSSetViewports(new[] { new Viewport(0, 0, _outputTexture.Width, _outputTexture.Height) });
 
-            // Draw fullscreen triangle (3 vertices, no VB)
-            ctx.Draw(3, 0);
+            // Draw fullscreen quad (6 vertices, two triangles, no VB)
+            ctx.Draw(6, 0);
 
-            // Unbind SRVs and RTV to avoid validation warnings
+            // Unbind to avoid validation warnings
             ctx.PSSetShaderResources(0, new ID3D11ShaderResourceView[] { null!, null! });
             ctx.OMSetRenderTargets(Array.Empty<ID3D11RenderTargetView>(), null);
         }
@@ -178,7 +196,22 @@ namespace Narabemi.Gpu
         private void CreateOutputResources(int width, int height)
         {
             var device = _deviceManager.Device;
-            _outputTexture = _deviceManager.CreateOutputTexture(width, height);
+
+            // Output render target (Default, no Shared flag needed — WGL interop removed)
+            var outDesc = new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+            };
+            var outTex = device.CreateTexture2D(outDesc);
+            var outSrv = device.CreateShaderResourceView(outTex);
+            _outputTexture = new GpuTexture(outTex, outSrv, width, height, _logger);
 
             var rtvDesc = new RenderTargetViewDescription
             {
@@ -203,6 +236,27 @@ namespace Narabemi.Gpu
             };
             _stagingTexture = device.CreateTexture2D(stagingDesc);
             _cpuOutput = new byte[height * width * 4];
+
+            // Intermediate Default-usage copies of input Dynamic textures.
+            // Workaround: Dynamic textures cannot be sampled correctly by the shader
+            // on some GPU drivers due to internal tiled vs. linear layout mismatch.
+            _inputSrvA?.Dispose(); _inputCopyA?.Dispose();
+            _inputSrvB?.Dispose(); _inputCopyB?.Dispose();
+            var inputDesc = new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource,
+            };
+            _inputCopyA = device.CreateTexture2D(inputDesc);
+            _inputSrvA  = device.CreateShaderResourceView(_inputCopyA);
+            _inputCopyB = device.CreateTexture2D(inputDesc);
+            _inputSrvB  = device.CreateShaderResourceView(_inputCopyB);
         }
 
         private static byte[] LoadShaderBytes(string filename)
@@ -218,6 +272,8 @@ namespace Narabemi.Gpu
             if (_disposed) return;
             _disposed = true;
 
+            _inputSrvA?.Dispose(); _inputCopyA?.Dispose();
+            _inputSrvB?.Dispose(); _inputCopyB?.Dispose();
             _stagingTexture?.Dispose();
             _outputRtv?.Dispose();
             _outputTexture?.Dispose();
