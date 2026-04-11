@@ -68,6 +68,7 @@ namespace Narabemi.Views
             if (DataContext is not MainWindowViewModel vm) return;
 
             var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+            var ctrl  = e.KeyModifiers.HasFlag(KeyModifiers.Control);
 
             switch (e.Key)
             {
@@ -87,6 +88,42 @@ namespace Narabemi.Views
                     vm.SeekRelative(shift ? 30.0 : 5.0);
                     e.Handled = true;
                     break;
+                case Key.O when ctrl && !shift:
+                    // Ctrl+O → open file for primary player
+                    _ = OpenFileAsync(vm.PrimaryPlayer);
+                    e.Handled = true;
+                    break;
+                case Key.O when ctrl && shift:
+                    // Ctrl+Shift+O → open file for secondary player
+                    var secondary = vm.MainPlayerIndex == 0 ? vm.PlayerB : vm.PlayerA;
+                    _ = OpenFileAsync(secondary);
+                    e.Handled = true;
+                    break;
+            }
+        }
+
+        private async System.Threading.Tasks.Task OpenFileAsync(VideoPlayerViewModel target)
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Open video file",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Video files")
+                    {
+                        Patterns = new[] { "*.mp4", "*.mkv", "*.avi", "*.mov", "*.wmv",
+                                           "*.flv", "*.webm", "*.m4v", "*.ts", "*.mts" },
+                    },
+                    new FilePickerFileType("All files") { Patterns = new[] { "*.*" } },
+                },
+            });
+
+            if (files.Count > 0)
+            {
+                var path = files[0].TryGetLocalPath();
+                if (path is not null)
+                    target.VideoPath = path;
             }
         }
 
