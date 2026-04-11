@@ -13,9 +13,8 @@ using Narabemi.ViewModels;
 namespace Narabemi.UI.Controls
 {
     /// <summary>
-    /// Displays the blended video output. Initialises the GPU pipeline
-    /// (D3D11 device → mpv SW render) on first attach, then composites
-    /// frames on the CPU and draws to a WriteableBitmap.
+    /// Displays the blended video output. Initializes the GPU pipeline on first attach:
+    /// mpv GL render → D3D11 texture (WGL_NV_DX_interop2) → CS blend → CPU readback → WriteableBitmap.
     /// </summary>
     public sealed class GpuBlendControl : Control
     {
@@ -71,7 +70,7 @@ namespace Narabemi.UI.Controls
                 App.Services?.GetKeyedService<VideoPlayerViewModel>("PlayerA")?.InitMpvHeadless();
                 App.Services?.GetKeyedService<VideoPlayerViewModel>("PlayerB")?.InitMpvHeadless();
 
-                // 3. SW renderer init (mpv → CPU buffer → D3D11 dynamic texture)
+                // 3. GL renderer init (mpv GL → D3D11 R8G8B8A8 texture via WGL_NV_DX_interop2)
                 const int W = 1280;
                 const int H = 720;
 

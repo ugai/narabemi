@@ -70,7 +70,7 @@ namespace Narabemi.Views
             {
                 var seekBar = this.FindControl<Slider>("SeekBar");
                 if (seekBar is not null)
-                    vm.PrimaryPlayer.SeekTo(seekBar.Value);
+                    vm.SeekBoth(seekBar.Value);
                 vm.PrimaryPlayer.EndSeek();
             }
         }

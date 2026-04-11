@@ -176,6 +176,20 @@ namespace Narabemi.ViewModels
             // BlendRatio/BorderWidth/BorderColor are read by GpuBlendControl during CPU blend.
         }
 
+        /// <summary>
+        /// Seeks the primary player to <paramref name="seconds"/>.
+        /// When AutoSync is on, also seeks the secondary player to the same position.
+        /// </summary>
+        public void SeekBoth(double seconds)
+        {
+            PrimaryPlayer.SeekTo(seconds);
+            if (AutoSync)
+            {
+                var secondary = MainPlayerIndex == 0 ? PlayerB : PlayerA;
+                secondary.SeekTo(seconds);
+            }
+        }
+
         [RelayCommand]
         private void VolumeIconMouseDown()
         {
