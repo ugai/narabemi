@@ -375,6 +375,7 @@ namespace Narabemi.Mpv
                     case MpvEventId.Shutdown:
                         return;
                     case MpvEventId.FileLoaded:
+                        LogHwdec();
                         FileLoaded?.Invoke();
                         break;
                     case MpvEventId.EndFile:
@@ -410,6 +411,13 @@ namespace Narabemi.Mpv
                         EndOfFile?.Invoke();
                     break;
             }
+        }
+
+        private void LogHwdec()
+        {
+            var hwdec = MpvApi.GetPropertyStringManaged(_ctx, "hwdec-current") ?? "none";
+            var codec = MpvApi.GetPropertyStringManaged(_ctx, "video-codec") ?? "?";
+            _logger.LogInformation("hwdec-current={Hwdec} video-codec={Codec}", hwdec, codec);
         }
 
         private void EnsureInit()

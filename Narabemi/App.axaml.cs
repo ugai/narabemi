@@ -14,6 +14,7 @@ using Narabemi.Gpu;
 using Narabemi.Mpv;
 using Narabemi.Services;
 using Narabemi.Settings;
+using Narabemi.Testing;
 using Narabemi.ViewModels;
 using Narabemi.Views;
 using ZLogger;
@@ -45,11 +46,26 @@ namespace Narabemi
             {
                 DisableAvaloniaDataAnnotationValidation();
 
+                var snapshotArgs = SnapshotArgs.Parse(desktop.Args);
+
                 _host = CreateHostBuilder().Build();
                 Services = _host.Services;
 
                 var appStatesService = Services.GetRequiredService<AppStatesService>();
                 appStatesService.LoadFile();
+
+                // In snapshot mode, override video paths before ApplyTo runs
+                if (snapshotArgs.IsSnapshotMode)
+                {
+                    var state = appStatesService.Current!;
+                    if (snapshotArgs.VideoPathA is not null)
+                    {
+                        state.VideoPathList.Clear();
+                        state.VideoPathList.Add(snapshotArgs.VideoPathA);
+                        if (snapshotArgs.VideoPathB is not null)
+                            state.VideoPathList.Add(snapshotArgs.VideoPathB);
+                    }
+                }
 
                 var mainWindow = Services.GetRequiredService<MainWindow>();
                 var mainVm = Services.GetRequiredService<MainWindowViewModel>();
@@ -59,11 +75,25 @@ namespace Narabemi
                 mainWindow.Initialize(fadeManager);
 
                 desktop.MainWindow = mainWindow;
-                desktop.ShutdownRequested += (_, _) =>
+
+                // Don't save appstates on exit in snapshot mode (avoids overwriting user state)
+                if (!snapshotArgs.IsSnapshotMode)
                 {
-                    appStatesService.ApplyFrom(mainVm);
-                    appStatesService.SaveFile();
-                };
+                    desktop.ShutdownRequested += (_, _) =>
+                    {
+                        appStatesService.ApplyFrom(mainVm);
+                        appStatesService.SaveFile();
+                    };
+                }
+
+                // Start snapshot capture runner after window is shown
+                if (snapshotArgs.IsSnapshotMode)
+                {
+                    var syncManager = Services.GetRequiredService<FrameSyncManager>();
+                    var logger = Services.GetRequiredService<ILogger<SnapshotRunner>>();
+                    var runner = new SnapshotRunner(snapshotArgs, mainVm, syncManager, logger);
+                    runner.Start(mainWindow);
+                }
             }
 
             base.OnFrameworkInitializationCompleted();
