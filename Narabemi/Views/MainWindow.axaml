@@ -7,7 +7,7 @@
         mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="720"
         x:Class="Narabemi.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="Narabemi"
+        Title="{Binding WindowTitle}"
         Width="1280" Height="720"
         MinWidth="640" MinHeight="360"
         Background="Black"

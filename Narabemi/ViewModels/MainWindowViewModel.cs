@@ -54,6 +54,22 @@ namespace Narabemi.ViewModels
         // Convenience alias: the "primary" player drives the seek bar, duration, etc.
         public VideoPlayerViewModel PrimaryPlayer => MainPlayerIndex == 0 ? PlayerA : PlayerB;
 
+        public string WindowTitle
+        {
+            get
+            {
+                var a = System.IO.Path.GetFileName(PlayerA.VideoPath);
+                var b = System.IO.Path.GetFileName(PlayerB.VideoPath);
+                return (a, b) switch
+                {
+                    ({ Length: > 0 }, { Length: > 0 }) => $"Narabemi — {a} | {b}",
+                    ({ Length: > 0 }, _) => $"Narabemi — {a}",
+                    (_, { Length: > 0 }) => $"Narabemi — {b}",
+                    _ => "Narabemi",
+                };
+            }
+        }
+
         // IAppStateTarget
         IList<IAppStatePlayerTarget> IAppStateTarget.StatePlayers =>
             new IAppStatePlayerTarget[] { PlayerA, PlayerB };
@@ -91,6 +107,8 @@ namespace Narabemi.ViewModels
                 {
                     if (e.PropertyName == nameof(VideoPlayerViewModel.IsPaused))
                         SyncPlaybackState();
+                    if (e.PropertyName == nameof(VideoPlayerViewModel.VideoPath))
+                        OnPropertyChanged(nameof(WindowTitle));
                 };
             }
         }
@@ -163,19 +181,7 @@ namespace Narabemi.ViewModels
             PlayerB.UpdateActualVolume(MasterVolume, value);
         }
 
-        partial void OnBlendRatioChanged(double value) => PushBlendParams();
-        partial void OnBlendBorderWidthChanged(double value) => PushBlendParams();
-        partial void OnBlendBorderColorChanged(ColorRgba value) => PushBlendParams();
-
-        partial void OnBlendModeChanged(int value)
-        {
-            // BlendMode is read by GpuBlendControl during CPU blend; no push needed.
-        }
-
-        private void PushBlendParams()
-        {
-            // BlendRatio/BorderWidth/BorderColor are read by GpuBlendControl during CPU blend.
-        }
+        partial void OnBlendModeChanged(int value) { }  // read by GpuBlendControl each frame
 
         /// <summary>
         /// Seeks the primary player to <paramref name="seconds"/>.
