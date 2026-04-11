@@ -20,10 +20,10 @@ namespace Narabemi.UI.Controls
     public sealed class GpuBlendControl : Control
     {
         private readonly FrameSyncManager? _syncManager;
+        private readonly BlendRenderer? _blendRenderer;
         private readonly ILogger<GpuBlendControl> _logger;
 
         private WriteableBitmap? _bitmap;
-        private byte[]? _blendBuffer;
         private int _texWidth;
         private int _texHeight;
         private bool _initialized;
@@ -32,14 +32,16 @@ namespace Narabemi.UI.Controls
         public GpuBlendControl()
             : this(
                 App.Services?.GetService(typeof(FrameSyncManager)) as FrameSyncManager,
+                App.Services?.GetService(typeof(BlendRenderer)) as BlendRenderer,
                 App.Services?.GetService(typeof(ILogger<GpuBlendControl>)) as ILogger<GpuBlendControl>
                     ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<GpuBlendControl>.Instance)
         {
         }
 
-        public GpuBlendControl(FrameSyncManager? syncManager, ILogger<GpuBlendControl> logger)
+        public GpuBlendControl(FrameSyncManager? syncManager, BlendRenderer? blendRenderer, ILogger<GpuBlendControl> logger)
         {
             _syncManager = syncManager;
+            _blendRenderer = blendRenderer;
             _logger = logger;
         }
 
@@ -78,14 +80,16 @@ namespace Narabemi.UI.Controls
                 rendererA?.Initialize(W, H);
                 rendererB?.Initialize(W, H);
 
-                // 4. Frame sync (coordinates dual-player frame delivery)
+                // 4. D3D11 blend shader pipeline
+                _blendRenderer?.Initialize(W, H);
+
+                // 5. Frame sync (coordinates dual-player frame delivery + GPU blend)
                 if (_syncManager is not null && rendererA is not null && rendererB is not null)
                     _syncManager.Initialize(W, H, rendererA, rendererB);
 
-                // 5. Bitmap + blend buffer
+                // 6. Bitmap for display
                 _texWidth = W;
                 _texHeight = H;
-                _blendBuffer = new byte[H * W * 4];
                 _bitmap = new WriteableBitmap(
                     new PixelSize(W, H),
                     new Vector(96, 96),
@@ -114,66 +118,48 @@ namespace Narabemi.UI.Controls
         private void PresentFrame()
         {
             _frameScheduled = false;
-            if (!_initialized || _bitmap is null || _blendBuffer is null) return;
+            if (!_initialized || _bitmap is null || _blendRenderer is null) return;
 
             try
             {
-                var rendererA = App.Services?.GetKeyedService<MpvGlRenderer>("PlayerA");
-                var rendererB = App.Services?.GetKeyedService<MpvGlRenderer>("PlayerB");
-
-                var bufA = rendererA?.FrameBuffer;
-                var bufB = rendererB?.FrameBuffer;
-                if (bufA is null && bufB is null) return;
-
-                // Get blend parameters from the ViewModel
-                float ratio = 0.5f;
-                float borderWidth = 1.0f;
-                byte borderR = 255, borderG = 255, borderB = 255;
-
-                if (DataContext is MainWindowViewModel vm ||
-                    (App.Services?.GetService(typeof(MainWindowViewModel)) is MainWindowViewModel svcVm && (vm = svcVm) != null))
+                // Push blend parameters from ViewModel to the sync manager
+                if (_syncManager is not null)
                 {
-                    ratio = (float)vm.BlendRatio;
-                    borderWidth = (float)vm.BlendBorderWidth;
-                    borderR = vm.BlendBorderColor.R;
-                    borderG = vm.BlendBorderColor.G;
-                    borderB = vm.BlendBorderColor.B;
+                    float ratio = 0.5f;
+                    float borderWidth = 1.0f;
+                    byte borderR = 255, borderG = 255, borderB = 255;
+                    int blendMode = 0;
+
+                    if (DataContext is MainWindowViewModel vm ||
+                        (App.Services?.GetService(typeof(MainWindowViewModel)) is MainWindowViewModel svcVm && (vm = svcVm) != null))
+                    {
+                        ratio = (float)vm.BlendRatio;
+                        borderWidth = (float)vm.BlendBorderWidth;
+                        borderR = vm.BlendBorderColor.R;
+                        borderG = vm.BlendBorderColor.G;
+                        borderB = vm.BlendBorderColor.B;
+                        blendMode = vm.BlendMode;
+                    }
+
+                    _syncManager.UpdateBlendParams(ratio, borderWidth, borderR, borderG, borderB, blendMode);
                 }
+
+                // Copy GPU blend result → WriteableBitmap
+                var cpuOutput = _blendRenderer.CpuOutput;
+                if (cpuOutput is null) return;
 
                 unsafe
                 {
-                    fixed (byte* dst = _blendBuffer)
+                    using var fb = _bitmap.Lock();
+                    lock (_blendRenderer.CpuOutputLock)
                     {
-                        if (bufA is not null && bufB is not null)
+                        fixed (byte* src = cpuOutput)
                         {
-                            fixed (byte* pA = bufA, pB = bufB)
-                            {
-                                CpuBlender.BlendHorizontal(
-                                    dst, _texWidth * 4,
-                                    pA, rendererA!.FrameStride,
-                                    pB, rendererB!.FrameStride,
-                                    _texWidth, _texHeight,
-                                    ratio, borderWidth,
-                                    borderR, borderG, borderB);
-                            }
+                            CpuBlender.CopyFrame(
+                                (byte*)fb.Address, fb.RowBytes,
+                                src, _texWidth * 4,
+                                _texWidth, _texHeight);
                         }
-                        else
-                        {
-                            // Single source pass-through
-                            var src = bufA ?? bufB!;
-                            var stride = bufA is not null ? rendererA!.FrameStride : rendererB!.FrameStride;
-                            fixed (byte* pSrc = src)
-                            {
-                                CpuBlender.CopyFrame(dst, _texWidth * 4, pSrc, stride, _texWidth, _texHeight);
-                            }
-                        }
-
-                        // Copy blend result to WriteableBitmap
-                        using var fb = _bitmap.Lock();
-                        CpuBlender.CopyFrame(
-                            (byte*)fb.Address, fb.RowBytes,
-                            dst, _texWidth * 4,
-                            _texWidth, _texHeight);
                     }
                 }
 

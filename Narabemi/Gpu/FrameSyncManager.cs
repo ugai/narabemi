@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +15,8 @@ namespace Narabemi.Gpu
     /// </summary>
     public sealed class FrameSyncManager : IDisposable
     {
+        private readonly BlendRenderer _blend;
+        private readonly D3D11DeviceManager _deviceManager;
         private readonly ILogger<FrameSyncManager> _logger;
 
         private MpvGlRenderer? _rendererA;
@@ -26,12 +29,13 @@ namespace Narabemi.Gpu
 
         private volatile bool _disposed;
 
-        /// <summary>Fires on a render thread when frame(s) are ready for CPU blend + display.</summary>
+        /// <summary>Fires on a render thread when a blended frame is ready for display.</summary>
         public event Action? BlendFrameReady;
 
-        public FrameSyncManager(BlendRenderer blend, ILogger<FrameSyncManager> logger)
+        public FrameSyncManager(BlendRenderer blend, D3D11DeviceManager deviceManager, ILogger<FrameSyncManager> logger)
         {
-            // BlendRenderer kept in DI signature for compatibility; not used in CPU blend path.
+            _blend = blend;
+            _deviceManager = deviceManager;
             _logger = logger;
         }
 
@@ -58,6 +62,28 @@ namespace Narabemi.Gpu
             TryNotify();
         }
 
+        /// <summary>
+        /// Updates blend parameters from the ViewModel. Call from UI thread before blend.
+        /// </summary>
+        public void UpdateBlendParams(float ratio, float borderWidth, byte borderR, byte borderG, byte borderB, int blendMode)
+        {
+            int w = _blend.OutputWidth;
+            int h = _blend.OutputHeight;
+            if (w == 0 || h == 0) return;
+
+            _blend.SetMode(blendMode == 1 ? BlendMode.Vertical : BlendMode.Horizontal);
+            _currentParams = new BlendParams
+            {
+                WidthPx = w,
+                HeightPx = h,
+                Ratio = ratio,
+                BorderWidth = borderWidth,
+                BorderColor = new System.Numerics.Vector4(borderR / 255f, borderG / 255f, borderB / 255f, 1f),
+            };
+        }
+
+        private BlendParams _currentParams = BlendParams.Default(1280, 720);
+
         private void TryNotify()
         {
             if (_disposed) return;
@@ -75,7 +101,27 @@ namespace Narabemi.Gpu
 
             if (!_hasTextureA && !_hasTextureB) return;
 
+            // Run GPU blend + readback on the render thread (we're already on it)
+            RunGpuBlend();
+
             BlendFrameReady?.Invoke();
+        }
+
+        private void RunGpuBlend()
+        {
+            var srvA = _rendererA?.Texture?.Srv;
+            var srvB = _rendererB?.Texture?.Srv;
+            if (srvA is null && srvB is null) return;
+
+            // If only one source, use it for both slots (shader will show it based on ratio)
+            var effectiveSrvA = srvA ?? srvB!;
+            var effectiveSrvB = srvB ?? srvA!;
+
+            lock (_deviceManager.ContextLock)
+            {
+                _blend.Render(effectiveSrvA, effectiveSrvB, _currentParams);
+                _blend.ReadBackOutput();
+            }
         }
 
         public void Dispose()
