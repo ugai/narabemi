@@ -54,12 +54,40 @@ namespace Narabemi.Views
 
             Loaded += OnLoaded;
             Closing += OnClosing;
+            KeyDown += OnKeyDown;
         }
 
         private void OnLoaded(object? sender, RoutedEventArgs e)
         {
             if (DataContext is MainWindowViewModel vm)
                 vm.LoadedCommand.Execute(null);
+        }
+
+        private void OnKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (DataContext is not MainWindowViewModel vm) return;
+
+            var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+
+            switch (e.Key)
+            {
+                case Key.Space:
+                    vm.PlayPauseCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Key.Escape:
+                    vm.StopCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Key.Left:
+                    vm.SeekRelative(shift ? -30.0 : -5.0);
+                    e.Handled = true;
+                    break;
+                case Key.Right:
+                    vm.SeekRelative(shift ? 30.0 : 5.0);
+                    e.Handled = true;
+                    break;
+            }
         }
 
         private void OnBlendModeButtonClick(object? sender, RoutedEventArgs e)

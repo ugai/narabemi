@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -188,6 +189,16 @@ namespace Narabemi.ViewModels
                 var secondary = MainPlayerIndex == 0 ? PlayerB : PlayerA;
                 secondary.SeekTo(seconds);
             }
+        }
+
+        /// <summary>
+        /// Seeks both players by a relative offset. Used by keyboard shortcuts.
+        /// </summary>
+        public void SeekRelative(double deltaSeconds)
+        {
+            var pos = PrimaryPlayer.Position + deltaSeconds;
+            pos = Math.Clamp(pos, 0, PrimaryPlayer.Duration > 0 ? PrimaryPlayer.Duration : pos);
+            SeekBoth(pos);
         }
 
         [RelayCommand]
