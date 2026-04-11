@@ -44,6 +44,10 @@ namespace Narabemi.Views
                 seekBar.AddHandler(PointerReleasedEvent, OnSeekBarPointerReleased, RoutingStrategies.Tunnel);
             }
 
+            var blendModeButton = this.FindControl<Button>("BlendModeButton");
+            if (blendModeButton is not null)
+                blendModeButton.Click += OnBlendModeButtonClick;
+
             AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
             AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
             AddHandler(DragDrop.DropEvent, OnDrop);
@@ -56,6 +60,12 @@ namespace Narabemi.Views
         {
             if (DataContext is MainWindowViewModel vm)
                 vm.LoadedCommand.Execute(null);
+        }
+
+        private void OnBlendModeButtonClick(object? sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainWindowViewModel vm)
+                vm.BlendMode = vm.BlendMode == 0 ? 1 : 0;
         }
 
         private void OnSeekBarPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -106,19 +116,29 @@ namespace Narabemi.Views
             if (DataContext is not MainWindowViewModel vm)
                 return;
 
-            if (e.Data.GetFiles() is { } files)
-            {
-                var filePath = files
-                    .Select(f => f.TryGetLocalPath())
-                    .FirstOrDefault(p => p is not null && File.Exists(p));
+            if (e.Data.GetFiles() is not { } files)
+                return;
 
-                if (filePath is not null)
-                {
-                    // Route to PlayerA (left half) or PlayerB (right half) based on drop position
-                    var dropX = e.GetPosition(this).X;
-                    var target = dropX < Bounds.Width / 2 ? vm.PlayerA : vm.PlayerB;
-                    target.VideoPath = filePath;
-                }
+            var paths = files
+                .Select(f => f.TryGetLocalPath())
+                .Where(p => p is not null && File.Exists(p))
+                .ToList();
+
+            if (paths.Count == 0)
+                return;
+
+            if (paths.Count >= 2)
+            {
+                // Two files: first → PlayerA, second → PlayerB
+                vm.PlayerA.VideoPath = paths[0]!;
+                vm.PlayerB.VideoPath = paths[1]!;
+            }
+            else
+            {
+                // One file: route by drop position (left half → PlayerA, right half → PlayerB)
+                var dropX = e.GetPosition(this).X;
+                var target = dropX < Bounds.Width / 2 ? vm.PlayerA : vm.PlayerB;
+                target.VideoPath = paths[0]!;
             }
         }
 
