@@ -308,25 +308,37 @@ namespace Narabemi.Gpu
 
         private unsafe void RenderFrame()
         {
-            // Lock the shared D3D11↔GL object — gives GL exclusive write access.
-            var obj = _wglObject;
-            if (!WglInterop.WglDXLockObjectsNV(_wglDevice, 1, &obj))
+            // Hold ContextLock for the entire WGL DX lock/render/unlock sequence.
+            // This serializes two concerns at once:
+            //   1. Two render threads must not call WglDXLockObjectsNV on the same
+            //      D3D11 device concurrently — the driver crashes with an SEHException.
+            //   2. RunGpuBlend (called from TryNotify after unlock) uses the D3D11
+            //      immediate context via CopyResource. Holding the same lock here
+            //      prevents CopyResource from racing with a concurrent WGL lock on
+            //      the texture being copied.
+            // FrameRendered is invoked AFTER releasing the lock to avoid re-entering it
+            // (TryNotify → RunGpuBlend re-acquires ContextLock).
+            lock (_deviceManager.ContextLock)
             {
-                _logger.LogWarning("WglDXLockObjectsNV failed; skipping frame");
-                return;
-            }
+                var obj = _wglObject;
+                if (!WglInterop.WglDXLockObjectsNV(_wglDevice, 1, &obj))
+                {
+                    _logger.LogWarning("WglDXLockObjectsNV failed; skipping frame");
+                    return;
+                }
 
-            try
-            {
-                // mpv renders into the FBO (backed by the shared GL texture).
-                _player.RenderFrame((int)_glFbo, _width, _height);
-                // Inform mpv that the frame has been displayed (allows buffer reuse).
-                _player.ReportSwap();
-            }
-            finally
-            {
-                // Unlock returns D3D11 access to the texture.
-                WglInterop.WglDXUnlockObjectsNV(_wglDevice, 1, &obj);
+                try
+                {
+                    // mpv renders into the FBO (backed by the shared GL texture).
+                    _player.RenderFrame((int)_glFbo, _width, _height);
+                    // Inform mpv that the frame has been displayed (allows buffer reuse).
+                    _player.ReportSwap();
+                }
+                finally
+                {
+                    // Unlock returns D3D11 access to the texture.
+                    WglInterop.WglDXUnlockObjectsNV(_wglDevice, 1, &obj);
+                }
             }
 
             // Notify FrameSyncManager: D3D11 texture now contains the latest frame.

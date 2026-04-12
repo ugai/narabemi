@@ -84,8 +84,8 @@ namespace Narabemi.Testing
         {
             _vm.PlayerA.SeekTo(_args.SeekSeconds);
             _vm.PlayerB.SeekTo(_args.SeekSeconds);
-            _vm.PlayerA.Pause();
-            _vm.PlayerB.Pause();
+            // Do not pause — mpv stops firing GL update callbacks when paused,
+            // which would prevent post-seek frames from arriving.
             _logger.LogInformation("Seeked to {Seek}s, waiting for post-seek frames", _args.SeekSeconds);
 
             // Short delay before counting post-seek frames to let mpv process the seek

@@ -364,6 +364,7 @@ FodyWeavers.xsd
 
 ffmpeg/
 Narabemi/lib/
+_temp/
 *.zip
 
 # IDE

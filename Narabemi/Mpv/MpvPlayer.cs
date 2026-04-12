@@ -160,7 +160,12 @@ namespace Narabemi.Mpv
             if (_renderCtx == IntPtr.Zero) return;
 
             var fboDesc = new MpvOpenGlFbo { Fbo = fbo, Width = width, Height = height };
-            var flipY = 1; // OpenGL has inverted Y vs D3D convention
+            // flip_y=0: mpv renders top-down (D3D/screen convention).
+            // WGL interop shares memory between GL FBO and D3D11 texture;
+            // since D3D11 row-0 = top, we want mpv to also place row-0 at the top.
+            // flip_y=1 means "video image is inverted" (OpenGL bottom-up convention),
+            // which causes double-flip and an upside-down result in D3D11.
+            var flipY = 0;
 
             var fboHandle = GCHandle.Alloc(fboDesc, GCHandleType.Pinned);
             var flipHandle = GCHandle.Alloc(flipY, GCHandleType.Pinned);
