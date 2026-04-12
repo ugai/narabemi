@@ -28,6 +28,9 @@ namespace Narabemi.UI.Controls
         private bool _initialized;
         private bool _frameScheduled;
 
+        // Cached ViewModel reference for reading blend params on the render thread.
+        private MainWindowViewModel? _vm;
+
         public GpuBlendControl()
             : this(
                 App.Services?.GetService(typeof(FrameSyncManager)) as FrameSyncManager,
@@ -86,6 +89,12 @@ namespace Narabemi.UI.Controls
                 if (_syncManager is not null && rendererA is not null && rendererB is not null)
                     _syncManager.Initialize(W, H, rendererA, rendererB);
 
+                // 5b. Register blend params provider so RunGpuBlend always uses the latest
+                //     ViewModel values (eliminates 1-frame lag and enables paused-state updates).
+                _vm = App.Services?.GetService<MainWindowViewModel>();
+                if (_syncManager != null && _vm != null)
+                    _syncManager.SetBlendParamsProvider(ReadAndApplyBlendParams);
+
                 // 6. Bitmap for display
                 _texWidth = W;
                 _texHeight = H;
@@ -114,6 +123,24 @@ namespace Narabemi.UI.Controls
             Dispatcher.UIThread.Post(PresentFrame, DispatcherPriority.Render);
         }
 
+        /// <summary>
+        /// Reads the current blend parameters from the cached ViewModel and pushes them to
+        /// FrameSyncManager. Called by FrameSyncManager on the render thread just before each
+        /// CS dispatch, so every rendered frame uses the most up-to-date parameters.
+        /// Reading plain value-type properties (double, int, byte) from another thread is safe.
+        /// </summary>
+        private void ReadAndApplyBlendParams()
+        {
+            if (_syncManager is null || _vm is null) return;
+            _syncManager.UpdateBlendParams(
+                (float)_vm.BlendRatio,
+                (float)_vm.BlendBorderWidth,
+                _vm.BlendBorderColor.R,
+                _vm.BlendBorderColor.G,
+                _vm.BlendBorderColor.B,
+                _vm.BlendMode);
+        }
+
         private void PresentFrame()
         {
             _frameScheduled = false;
@@ -121,27 +148,8 @@ namespace Narabemi.UI.Controls
 
             try
             {
-                // Push blend parameters from ViewModel to the sync manager
-                if (_syncManager is not null)
-                {
-                    float ratio = 0.5f;
-                    float borderWidth = 1.0f;
-                    byte borderR = 255, borderG = 255, borderB = 255;
-                    int blendMode = 0;
-
-                    if (DataContext is MainWindowViewModel vm ||
-                        (App.Services?.GetService(typeof(MainWindowViewModel)) is MainWindowViewModel svcVm && (vm = svcVm) != null))
-                    {
-                        ratio = (float)vm.BlendRatio;
-                        borderWidth = (float)vm.BlendBorderWidth;
-                        borderR = vm.BlendBorderColor.R;
-                        borderG = vm.BlendBorderColor.G;
-                        borderB = vm.BlendBorderColor.B;
-                        blendMode = vm.BlendMode;
-                    }
-
-                    _syncManager.UpdateBlendParams(ratio, borderWidth, borderR, borderG, borderB, blendMode);
-                }
+                // Blend parameters are now applied in RunGpuBlend via ReadAndApplyBlendParams.
+                // PresentFrame only needs to copy the already-blended CPU buffer to the bitmap.
 
                 // Copy GPU blend result → WriteableBitmap
                 var cpuOutput = _blendRenderer.CpuOutput;

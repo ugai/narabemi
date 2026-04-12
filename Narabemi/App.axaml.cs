@@ -73,6 +73,8 @@ namespace Narabemi
 
                 mainWindow.DataContext = mainVm;
                 mainWindow.Initialize(fadeManager);
+                if (snapshotArgs.IsSnapshotMode)
+                    mainVm.IsSnapshotMode = true;
 
                 desktop.MainWindow = mainWindow;
 

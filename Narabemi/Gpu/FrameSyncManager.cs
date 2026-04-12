@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Narabemi.Gpu
@@ -28,6 +29,13 @@ namespace Narabemi.Gpu
         private bool _hasTextureB;
 
         private volatile bool _disposed;
+
+        // Callback set by GpuBlendControl to supply current blend params from the ViewModel.
+        // Invoked inside ContextLock in RunGpuBlend, just before each CS dispatch.
+        private volatile Action? _blendParamsProvider;
+
+        // Guard for ForceBlend: prevents queuing more than one concurrent forced pass.
+        private int _forceBlendPending;
 
         /// <summary>Fires on a render thread when a blended frame is ready for display.</summary>
         public event Action? BlendFrameReady;
@@ -60,6 +68,41 @@ namespace Narabemi.Gpu
             Interlocked.Exchange(ref _frameReadyB, 1);
             _hasTextureB = true;
             TryNotify();
+        }
+
+        /// <summary>
+        /// Registers a callback that reads current blend parameters from the ViewModel and
+        /// applies them via UpdateBlendParams. Invoked just before each CS dispatch so that
+        /// the rendered frame always uses up-to-date parameters (eliminates 1-frame lag).
+        /// </summary>
+        public void SetBlendParamsProvider(Action provider)
+        {
+            _blendParamsProvider = provider;
+        }
+
+        /// <summary>
+        /// Forces a blend pass outside the normal frame-driven cycle.
+        /// Call when blend parameters change while both players are paused — in that state
+        /// mpv does not fire GL update callbacks so the display would otherwise not refresh.
+        /// Safe to call from any thread. Coalesces concurrent calls (at most one pending).
+        /// </summary>
+        public void ForceBlend()
+        {
+            if (!_hasTextureA && !_hasTextureB) return;
+            // Drop extra calls while one is already in flight.
+            if (Interlocked.CompareExchange(ref _forceBlendPending, 1, 0) != 0) return;
+            Task.Run(() =>
+            {
+                try
+                {
+                    RunGpuBlend();
+                    BlendFrameReady?.Invoke();
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _forceBlendPending, 0);
+                }
+            });
         }
 
         /// <summary>
@@ -115,6 +158,11 @@ namespace Narabemi.Gpu
 
             lock (_deviceManager.ContextLock)
             {
+                // Pull the latest blend params from the ViewModel before each CS dispatch.
+                // This ensures the current frame is rendered with the most recent parameters,
+                // eliminating the 1-frame lag of the previous PresentFrame-driven approach.
+                _blendParamsProvider?.Invoke();
+
                 // CopyResource: Dynamic → Default (workaround for driver sampling issue)
                 _blend.PrepareInputs(texA, texB);
                 _blend.Render(_currentParams);

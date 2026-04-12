@@ -134,6 +134,7 @@ namespace Narabemi.ViewModels
         [RelayCommand]
         private void Closed()
         {
+            if (IsSnapshotMode) return;
             _appStatesService.ApplyFrom(this);
             _appStatesService.SaveFile();
             _logger.LogInformation("State saved to appstates.json");
@@ -181,9 +182,23 @@ namespace Narabemi.ViewModels
             PlayerB.UpdateActualVolume(MasterVolume, value);
         }
 
+        /// <summary>
+        /// When true, suppresses appstates.json write on window close.
+        /// Set by App in snapshot mode to avoid overwriting user state.
+        /// </summary>
+        public bool IsSnapshotMode { get; set; }
+
         public string BlendModeLabel => BlendMode == 0 ? "Horizontal" : "Vertical";
 
-        partial void OnBlendModeChanged(int value) => OnPropertyChanged(nameof(BlendModeLabel));
+        partial void OnBlendRatioChanged(double value) => _frameSyncManager?.ForceBlend();
+
+        partial void OnBlendBorderWidthChanged(double value) => _frameSyncManager?.ForceBlend();
+
+        partial void OnBlendModeChanged(int value)
+        {
+            OnPropertyChanged(nameof(BlendModeLabel));
+            _frameSyncManager?.ForceBlend();
+        }
 
         /// <summary>
         /// Seeks the primary player to <paramref name="seconds"/>.
