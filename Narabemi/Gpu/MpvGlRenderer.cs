@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Extensions.Logging;
@@ -58,6 +59,12 @@ namespace Narabemi.Gpu
         // NativeLibrary handle for fallback core GL function lookup
         private static readonly IntPtr _opengl32 = NativeLibrary.Load("opengl32.dll");
 
+        // Timing instrumentation
+        private static int _instanceCount;
+        private readonly string _tag;
+        private int _renderFrameCount;
+        private long _lastRenderTick;
+
         /// <summary>Fires on the render thread when a new frame has been rendered to the D3D11 texture.</summary>
         public event Action? FrameRendered;
 
@@ -69,6 +76,7 @@ namespace Narabemi.Gpu
             _player = player;
             _deviceManager = deviceManager;
             _logger = logger;
+            _tag = "R" + Interlocked.Increment(ref _instanceCount);
         }
 
         /// <summary>
@@ -309,30 +317,41 @@ namespace Narabemi.Gpu
         private unsafe void RenderFrame()
         {
             // Hold ContextLock for the entire WGL DX lock/render/unlock sequence.
-            // This serializes two concerns at once:
-            //   1. Two render threads must not call WglDXLockObjectsNV on the same
-            //      D3D11 device concurrently — the driver crashes with an SEHException.
-            //   2. RunGpuBlend (called from TryNotify after unlock) uses the D3D11
-            //      immediate context via CopyResource. Holding the same lock here
-            //      prevents CopyResource from racing with a concurrent WGL lock on
-            //      the texture being copied.
-            // FrameRendered is invoked AFTER releasing the lock to avoid re-entering it
-            // (TryNotify → RunGpuBlend re-acquires ContextLock).
+            // wglDXLockObjectsNV internally calls D3D11 immediate context methods
+            // (e.g. Flush), so it must be serialized with all other context users.
+            var swWait = Stopwatch.StartNew();
             lock (_deviceManager.ContextLock)
             {
+                long waitMs = swWait.ElapsedMilliseconds;
+                var sw = Stopwatch.StartNew();
+
                 var obj = _wglObject;
                 if (!WglInterop.WglDXLockObjectsNV(_wglDevice, 1, &obj))
                 {
                     _logger.LogWarning("WglDXLockObjectsNV failed; skipping frame");
                     return;
                 }
+                long t1 = sw.ElapsedMilliseconds; // wglLock done
 
                 try
                 {
                     // mpv renders into the FBO (backed by the shared GL texture).
                     _player.RenderFrame((int)_glFbo, _width, _height);
+                    long t2 = sw.ElapsedMilliseconds; // render done
                     // Inform mpv that the frame has been displayed (allows buffer reuse).
                     _player.ReportSwap();
+                    long t3 = sw.ElapsedMilliseconds; // swap done
+
+                    long nowTick = Stopwatch.GetTimestamp();
+                    double intervalMs = _lastRenderTick == 0 ? 0 :
+                        (nowTick - _lastRenderTick) * 1000.0 / Stopwatch.Frequency;
+                    _lastRenderTick = nowTick;
+
+                    if (++_renderFrameCount % 5 == 0)
+                        _logger.LogDebug(
+                            "[{Tag}#{N}] lockWait={W}ms wglLock={L}ms render={R}ms swap={S}ms | interval={I:F1}ms ({FPS:F1}fps)",
+                            _tag, _renderFrameCount, waitMs, t1, t2 - t1, t3 - t2,
+                            intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
                 }
                 finally
                 {

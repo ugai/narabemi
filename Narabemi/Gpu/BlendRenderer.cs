@@ -1,7 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
+using SharpGen.Runtime;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 
@@ -32,20 +34,16 @@ namespace Narabemi.Gpu
         private int _width;
         private int _height;
 
-        // Staging: R32_Uint, CPU-readable copy of output
-        private ID3D11Texture2D? _stagingTex;
+        // Staging: double-buffered R32_Uint textures for async GPU→CPU readback.
+        // BeginReadBack() copies output → _stagingBack, then swaps references.
+        // EndReadBack(stagingRef) maps the returned reference — race-free because
+        // the caller captures the reference before releasing ContextLock.
+        private ID3D11Texture2D? _stagingTex;     // front (ready to Map)
+        private ID3D11Texture2D? _stagingTexBack; // back  (GPU is writing here)
 
         // CPU readback buffer (raw BGRA bytes)
         private byte[]? _cpuOutput;
         private readonly object _cpuOutputLock = new();
-
-        // Intermediate Default-usage copies of the mpv Dynamic input textures.
-        // Workaround: Dynamic textures cause 4-split artifacts when read by shader
-        // on some GPU drivers. CopyResource to Default first.
-        private ID3D11Texture2D? _inputCopyA;
-        private ID3D11Texture2D? _inputCopyB;
-        private ID3D11ShaderResourceView? _inputSrvA;
-        private ID3D11ShaderResourceView? _inputSrvB;
 
         private bool _disposed;
 
@@ -85,24 +83,12 @@ namespace Narabemi.Gpu
         }
 
         /// <summary>
-        /// Copies input textures to intermediate Default R8G8B8A8 textures for CS reading.
-        /// Handles single-video mode by duplicating the one texture to both slots.
+        /// Runs the compute shader blend pass with the provided SRVs.
+        /// srvA and srvB are the mpv output texture SRVs (R8G8B8A8_UNorm, Default usage).
+        /// WGL interop unlock must have occurred before this call (satisfied by ContextLock ordering).
         /// Caller must hold ContextLock.
         /// </summary>
-        public void PrepareInputs(ID3D11Texture2D? dynA, ID3D11Texture2D? dynB)
-        {
-            var ctx = _deviceManager.Context;
-            var effectiveA = dynA ?? dynB!;
-            var effectiveB = dynB ?? dynA!;
-            ctx.CopyResource(_inputCopyA!, effectiveA);
-            ctx.CopyResource(_inputCopyB!, effectiveB);
-        }
-
-        /// <summary>
-        /// Runs the compute shader blend pass.
-        /// Caller must hold ContextLock. Call PrepareInputs() first.
-        /// </summary>
-        public void Render(BlendParams p)
+        public void Render(ID3D11ShaderResourceView srvA, ID3D11ShaderResourceView srvB, BlendParams p)
         {
             if (_csActive is null || _outputTex is null || _outputUav is null) return;
 
@@ -114,7 +100,7 @@ namespace Narabemi.Gpu
             ctx.Unmap(_constantBuffer!, 0);
 
             ctx.CSSetShader(_csActive, null, 0);
-            ctx.CSSetShaderResources(0, new[] { _inputSrvA!, _inputSrvB! });
+            ctx.CSSetShaderResources(0, new[] { srvA, srvB });
             ctx.CSSetConstantBuffers(0, new[] { _constantBuffer! });
             ctx.CSSetUnorderedAccessViews(0, new[] { _outputUav });
 
@@ -130,17 +116,100 @@ namespace Narabemi.Gpu
         }
 
         /// <summary>
-        /// Copies the CS output texture to staging and reads it back to CpuOutput.
+        /// Phase 1 of double-buffered readback (call inside ContextLock).
+        /// Copies CS output → staging back buffer, then swaps front/back references.
+        /// Returns the captured texture reference — pass this to EndReadBack(), do NOT
+        /// read the _stagingTex field after releasing ContextLock.
+        /// </summary>
+        public ID3D11Texture2D? BeginReadBack()
+        {
+            if (_outputTex is null || _stagingTexBack is null) return null;
+            var ctx = _deviceManager.Context;
+            ctx.CopyResource(_stagingTexBack, _outputTex);
+            (_stagingTex, _stagingTexBack) = (_stagingTexBack, _stagingTex);
+            return _stagingTex;
+        }
+
+        /// <summary>
+        /// Phase 2 of double-buffered readback. Maps the texture reference captured by
+        /// BeginReadBack() and copies to CpuOutput.
+        /// Caller must hold ContextLock to satisfy Map's thread-safety requirement.
+        /// mapMs: time for Map (GPU fence wait). memcpyMs: time for CPU memcpy.
+        /// </summary>
+        public void EndReadBack(ID3D11Texture2D staging, out long mapMs, out long memcpyMs)
+        {
+            mapMs = 0;
+            memcpyMs = 0;
+            if (_cpuOutput is null) return;
+            var ctx = _deviceManager.Context;
+            var sw = Stopwatch.StartNew();
+            var mapped = ctx.Map(staging, 0, MapMode.Read);
+            mapMs = sw.ElapsedMilliseconds;
+            sw.Restart();
+            try
+            {
+                CopyStagingToCpu(mapped);
+                memcpyMs = sw.ElapsedMilliseconds;
+            }
+            finally
+            {
+                ctx.Unmap(staging, 0);
+            }
+        }
+
+        /// <summary>
+        /// Split-lock Phase 2 — step 1: Map staging for CPU read.
+        /// Caller must hold ContextLock. Returns the mapped pointer (valid until EndStagingRead).
+        /// </summary>
+        public MappedSubresource BeginStagingRead(ID3D11Texture2D staging)
+            => _deviceManager.Context.Map(staging, 0, MapMode.Read);
+
+        /// <summary>
+        /// Split-lock Phase 2 — step 2: copy mapped pointer to CpuOutput.
+        /// No D3D11 context calls — safe to call WITHOUT ContextLock.
+        /// Call between BeginStagingRead and EndStagingRead.
+        /// </summary>
+        public void CopyStagingToCpu(MappedSubresource mapped)
+        {
+            if (_cpuOutput is null) return;
+            int dstStride = _width * 4;
+            lock (_cpuOutputLock)
+            {
+                unsafe
+                {
+                    fixed (byte* dst = _cpuOutput)
+                    {
+                        for (int y = 0; y < _height; y++)
+                        {
+                            Buffer.MemoryCopy(
+                                (void*)(mapped.DataPointer + (long)y * mapped.RowPitch),
+                                dst + (long)y * dstStride,
+                                dstStride, dstStride);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Split-lock Phase 2 — step 3: unmap staging texture.
         /// Caller must hold ContextLock.
         /// </summary>
-        public void ReadBackOutput()
+        public void EndStagingRead(ID3D11Texture2D staging)
+            => _deviceManager.Context.Unmap(staging, 0);
+
+        /// <summary>
+        /// Non-blocking readback attempt. Returns true if the Map succeeded (GPU done) and
+        /// data was copied to CpuOutput; returns false if the GPU is still writing
+        /// (DXGI_ERROR_WAS_STILL_DRAWING). Caller must hold ContextLock.
+        /// </summary>
+        public bool TryEndReadBack(ID3D11Texture2D staging)
         {
-            if (_outputTex is null || _stagingTex is null || _cpuOutput is null) return;
-
+            if (_cpuOutput is null) return false;
             var ctx = _deviceManager.Context;
-            ctx.CopyResource(_stagingTex, _outputTex);
-
-            var mapped = ctx.Map(_stagingTex, 0, MapMode.Read);
+            Result r = ctx.Map(staging, 0u, MapMode.Read, Vortice.Direct3D11.MapFlags.DoNotWait, out var mapped);
+            if (r.Code == unchecked((int)0x887A000A)) return false; // WAS_STILL_DRAWING
+            r.CheckError(); // throws on other errors
             try
             {
                 int dstStride = _width * 4;
@@ -163,8 +232,20 @@ namespace Narabemi.Gpu
             }
             finally
             {
-                ctx.Unmap(_stagingTex, 0);
+                ctx.Unmap(staging, 0);
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Single-call readback for callers that hold ContextLock for the full duration.
+        /// Caller must hold ContextLock.
+        /// </summary>
+        public void ReadBackOutput()
+        {
+            var staging = BeginReadBack();
+            if (staging is null) return;
+            EndReadBack(staging, out _, out _);
         }
 
         private void CreateResources(int width, int height)
@@ -196,8 +277,11 @@ namespace Narabemi.Gpu
                 Texture2D = new Texture2DUnorderedAccessView { MipSlice = 0 },
             });
 
-            // Staging texture for GPU → CPU readback (same R32_Uint format)
+            // Staging textures for GPU → CPU readback (double-buffered, same R32_Uint format).
+            // front (_stagingTex) is mapped by EndReadBack; back (_stagingTexBack) receives
+            // CopyResource from BeginReadBack. References are swapped after each copy.
             _stagingTex?.Dispose();
+            _stagingTexBack?.Dispose();
             var stagingDesc = new Texture2DDescription
             {
                 Width  = (uint)width,
@@ -209,29 +293,10 @@ namespace Narabemi.Gpu
                 Usage = ResourceUsage.Staging,
                 CPUAccessFlags = CpuAccessFlags.Read,
             };
-            _stagingTex = device.CreateTexture2D(stagingDesc);
-            _cpuOutput  = new byte[height * width * 4];
+            _stagingTex     = device.CreateTexture2D(stagingDesc);
+            _stagingTexBack = device.CreateTexture2D(stagingDesc);
+            _cpuOutput      = new byte[height * width * 4];
 
-            // Intermediate Default copies of the mpv input textures (RGBA format).
-            // R8G8B8A8_UNorm matches both the SW render path ("rgba" format) and the
-            // GL interop texture format, so CopyResource (same-format) always succeeds.
-            _inputSrvA?.Dispose(); _inputCopyA?.Dispose();
-            _inputSrvB?.Dispose(); _inputCopyB?.Dispose();
-            var inputDesc = new Texture2DDescription
-            {
-                Width  = (uint)width,
-                Height = (uint)height,
-                MipLevels = 1,
-                ArraySize = 1,
-                Format = Format.R8G8B8A8_UNorm,
-                SampleDescription = new SampleDescription(1, 0),
-                Usage = ResourceUsage.Default,
-                BindFlags = BindFlags.ShaderResource,
-            };
-            _inputCopyA = device.CreateTexture2D(inputDesc);
-            _inputSrvA  = device.CreateShaderResourceView(_inputCopyA);
-            _inputCopyB = device.CreateTexture2D(inputDesc);
-            _inputSrvB  = device.CreateShaderResourceView(_inputCopyB);
         }
 
         private static byte[] LoadShaderBytes(string filename)
@@ -248,11 +313,10 @@ namespace Narabemi.Gpu
             if (_disposed) return;
             _disposed = true;
 
-            _inputSrvA?.Dispose(); _inputCopyA?.Dispose();
-            _inputSrvB?.Dispose(); _inputCopyB?.Dispose();
             _outputUav?.Dispose();
             _outputTex?.Dispose();
             _stagingTex?.Dispose();
+            _stagingTexBack?.Dispose();
             _constantBuffer?.Dispose();
             _csVertical?.Dispose();
             _csHorizontal?.Dispose();

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -30,6 +31,12 @@ namespace Narabemi.UI.Controls
 
         // Cached ViewModel reference for reading blend params on the render thread.
         private MainWindowViewModel? _vm;
+
+        // Timing instrumentation
+        private int _presentFrameCount;
+        private long _lastPresentTick;
+        private int _renderCallCount;
+        private long _lastRenderTick;
 
         public GpuBlendControl()
             : this(
@@ -155,6 +162,7 @@ namespace Narabemi.UI.Controls
                 var cpuOutput = _blendRenderer.CpuOutput;
                 if (cpuOutput is null) return;
 
+                var sw = Stopwatch.StartNew();
                 unsafe
                 {
                     using var fb = _bitmap.Lock();
@@ -169,6 +177,18 @@ namespace Narabemi.UI.Controls
                         }
                     }
                 }
+                long copyMs = sw.ElapsedMilliseconds;
+
+                long nowTick = Stopwatch.GetTimestamp();
+                double intervalMs = _lastPresentTick == 0 ? 0 :
+                    (nowTick - _lastPresentTick) * 1000.0 / Stopwatch.Frequency;
+                _lastPresentTick = nowTick;
+
+                if (++_presentFrameCount % 5 == 0)
+                    _logger.LogDebug(
+                        "[Present#{N}] copy={C}ms | interval={I:F1}ms ({FPS:F1}fps)",
+                        _presentFrameCount, copyMs,
+                        intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
 
                 InvalidateVisual();
             }
@@ -183,6 +203,16 @@ namespace Narabemi.UI.Controls
             base.Render(context);
             if (_bitmap is not null)
                 context.DrawImage(_bitmap, new Rect(0, 0, Bounds.Width, Bounds.Height));
+
+            long nowTick = Stopwatch.GetTimestamp();
+            double renderIntervalMs = _lastRenderTick == 0 ? 0 :
+                (nowTick - _lastRenderTick) * 1000.0 / Stopwatch.Frequency;
+            _lastRenderTick = nowTick;
+            if (++_renderCallCount % 5 == 0)
+                _logger.LogDebug(
+                    "[Render#{N}] interval={I:F1}ms ({FPS:F1}fps)",
+                    _renderCallCount, renderIntervalMs,
+                    renderIntervalMs > 0 ? 1000.0 / renderIntervalMs : 0);
         }
     }
 }

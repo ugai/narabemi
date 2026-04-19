@@ -54,8 +54,8 @@ namespace Narabemi
                 var appStatesService = Services.GetRequiredService<AppStatesService>();
                 appStatesService.LoadFile();
 
-                // In snapshot mode, override video paths before ApplyTo runs
-                if (snapshotArgs.IsSnapshotMode)
+                // In snapshot/bench mode, override video paths before ApplyTo runs
+                if (snapshotArgs.IsSnapshotMode || snapshotArgs.IsBenchMode)
                 {
                     var state = appStatesService.Current!;
                     if (snapshotArgs.VideoPathA is not null)
@@ -73,13 +73,13 @@ namespace Narabemi
 
                 mainWindow.DataContext = mainVm;
                 mainWindow.Initialize(fadeManager);
-                if (snapshotArgs.IsSnapshotMode)
+                if (snapshotArgs.IsSnapshotMode || snapshotArgs.IsBenchMode)
                     mainVm.IsSnapshotMode = true;
 
                 desktop.MainWindow = mainWindow;
 
-                // Don't save appstates on exit in snapshot mode (avoids overwriting user state)
-                if (!snapshotArgs.IsSnapshotMode)
+                // Don't save appstates on exit in snapshot/bench mode (avoids overwriting user state)
+                if (!snapshotArgs.IsSnapshotMode && !snapshotArgs.IsBenchMode)
                 {
                     desktop.ShutdownRequested += (_, _) =>
                     {
@@ -95,6 +95,13 @@ namespace Narabemi
                     var logger = Services.GetRequiredService<ILogger<SnapshotRunner>>();
                     var runner = new SnapshotRunner(snapshotArgs, mainVm, syncManager, logger);
                     runner.Start(mainWindow);
+                }
+                else if (snapshotArgs.IsBenchMode)
+                {
+                    var syncManager = Services.GetRequiredService<FrameSyncManager>();
+                    var logger = Services.GetRequiredService<ILogger<BenchmarkRunner>>();
+                    var runner = new BenchmarkRunner(snapshotArgs, syncManager, logger);
+                    runner.Start();
                 }
             }
 
