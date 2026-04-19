@@ -250,9 +250,10 @@ namespace Narabemi.Gpu
                 try
                 {
                     var swLock = Stopwatch.StartNew();
+                    long ph2LockWait;
                     lock (_deviceManager.ContextLock)
                     {
-                        long ph2LockWait = swLock.ElapsedMilliseconds;
+                        ph2LockWait = swLock.ElapsedMilliseconds;
                         _blend.EndReadBack(stagingRef, out long mapMs, out long memcpyMs);
                         if (blendN % 5 == 0)
                             _logger.LogDebug("[Blend#{N}] ph2 lockWait={L}ms map={M}ms memcpy={C}ms",
