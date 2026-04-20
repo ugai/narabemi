@@ -4,8 +4,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Narabemi.Mpv;
-using Vortice.Direct3D11;
-using Vortice.DXGI;
 
 namespace Narabemi.Gpu
 {
@@ -27,8 +25,12 @@ namespace Narabemi.Gpu
         private readonly D3D11DeviceManager _deviceManager;
         private readonly ILogger<MpvGlRenderer> _logger;
 
-        // D3D11 texture shared with GL (R8G8B8A8_UNorm, Default, RenderTarget | ShaderResource | Shared)
-        private GpuTexture? _texture;
+        // WGL render target (plain Shared — WGL's key=0 binary protocol is incompatible with SharedKeyedMutex)
+        private GpuTexture? _wglTexture;
+
+        // Cross-device texture (SharedKeyedMutex) — copy destination from _wglTexture after each frame.
+        // Blend reads from this via AcquireSync(1) / ReleaseSync(0).
+        private GpuTexture? _copyTexture;
 
         private int _width;
         private int _height;
@@ -68,8 +70,8 @@ namespace Narabemi.Gpu
         /// <summary>Fires on the render thread when a new frame has been rendered to the D3D11 texture.</summary>
         public event Action? FrameRendered;
 
-        /// <summary>The D3D11 SRV for the latest rendered frame.</summary>
-        public GpuTexture? Texture => _texture;
+        /// <summary>The D3D11 SRV for the latest rendered frame (SharedKeyedMutex, cross-device).</summary>
+        public GpuTexture? Texture => _copyTexture;
 
         public MpvGlRenderer(MpvPlayer player, D3D11DeviceManager deviceManager, ILogger<MpvGlRenderer> logger)
         {
@@ -89,26 +91,14 @@ namespace Narabemi.Gpu
             _width  = width;
             _height = height;
 
-            // R8G8B8A8_UNorm: matches GL's RGBA8 convention for WGL interop.
-            // MiscFlags.Shared allows wglDXRegisterObjectNV to register it.
-            // BindFlags.RenderTarget: required for GL FBO attachment via WGL interop.
-            // BindFlags.ShaderResource: required for D3D11 CS input.
-            var desc = new Texture2DDescription
-            {
-                Width             = (uint)width,
-                Height            = (uint)height,
-                MipLevels         = 1,
-                ArraySize         = 1,
-                Format            = Format.R8G8B8A8_UNorm,
-                SampleDescription = new SampleDescription(1, 0),
-                Usage             = ResourceUsage.Default,
-                BindFlags         = BindFlags.RenderTarget | BindFlags.ShaderResource,
-                MiscFlags         = ResourceOptionFlags.Shared,
-            };
-
-            var tex = _deviceManager.Device.CreateTexture2D(desc);
-            var srv = _deviceManager.Device.CreateShaderResourceView(tex);
-            _texture = new GpuTexture(tex, srv, width, height, _logger);
+            // Two textures per renderer:
+            //   _wglTexture  — plain Shared, WGL render target. WGL uses key=0 binary lock;
+            //                  SharedKeyedMutex would conflict, so we use plain Shared here.
+            //   _copyTexture — SharedKeyedMutex, cross-device. After each frame: renderer
+            //                  acquires key=0, copies _wglTexture→_copyTexture, releases key=1
+            //                  so Blend can AcquireSync(1) and read on its own device.
+            _wglTexture  = _deviceManager.CreateWglTexture(width, height);
+            _copyTexture = _deviceManager.CreateRendererTexture(width, height);
 
             _renderThread = new Thread(RenderLoop)
             {
@@ -229,7 +219,7 @@ namespace Narabemi.Gpu
 
             _wglObject = WglInterop.WglDXRegisterObjectNV(
                 _wglDevice,
-                _texture!.Texture.NativePointer,
+                _wglTexture!.Texture.NativePointer,
                 _glTexture,
                 WglInterop.GL_TEXTURE_2D,
                 WglInterop.WGL_ACCESS_WRITE_DISCARD_NV);
@@ -316,51 +306,69 @@ namespace Narabemi.Gpu
 
         private unsafe void RenderFrame()
         {
-            // Hold ContextLock for the entire WGL DX lock/render/unlock sequence.
-            // wglDXLockObjectsNV internally calls D3D11 immediate context methods
-            // (e.g. Flush), so it must be serialized with all other context users.
-            var swWait = Stopwatch.StartNew();
-            lock (_deviceManager.ContextLock)
+            // WGL uses a binary key=0 protocol: wglDXLock = D3D releases(0)/GL acquires(0),
+            // wglDXUnlock = GL releases(0)/D3D acquires(0). Key never becomes 1.
+            // After wglDXUnlock we manually copy _wglTexture → _copyTexture (SharedKeyedMutex)
+            // with AcquireSync(0)→CopyResource→Flush→ReleaseSync(1) so Blend can AcquireSync(1).
+            var sw = Stopwatch.StartNew();
+            var obj = _wglObject;
+            if (!WglInterop.WglDXLockObjectsNV(_wglDevice, 1, &obj))
             {
-                long waitMs = swWait.ElapsedMilliseconds;
-                var sw = Stopwatch.StartNew();
+                _logger.LogWarning("WglDXLockObjectsNV failed; skipping frame");
+                return;
+            }
+            long t1 = sw.ElapsedMilliseconds;
 
-                var obj = _wglObject;
-                if (!WglInterop.WglDXLockObjectsNV(_wglDevice, 1, &obj))
+            try
+            {
+                _player.RenderFrame((int)_glFbo, _width, _height);
+                long t2 = sw.ElapsedMilliseconds;
+                _player.ReportSwap();
+                long t3 = sw.ElapsedMilliseconds;
+
+                long nowTick = Stopwatch.GetTimestamp();
+                double intervalMs = _lastRenderTick == 0 ? 0 :
+                    (nowTick - _lastRenderTick) * 1000.0 / Stopwatch.Frequency;
+                _lastRenderTick = nowTick;
+
+                if (++_renderFrameCount % 5 == 0)
+                    _logger.LogDebug(
+                        "[{Tag}#{N}] wglLock={L}ms render={R}ms swap={S}ms | interval={I:F1}ms ({FPS:F1}fps)",
+                        _tag, _renderFrameCount, t1, t2 - t1, t3 - t2,
+                        intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
+            }
+            finally
+            {
+                WglInterop.WglDXUnlockObjectsNV(_wglDevice, 1, &obj);
+            }
+
+            // Copy _wglTexture → _copyTexture with keyed mutex sync.
+            // AcquireSync(0): initial state after creation, and after Blend releases(0).
+            if (_copyTexture?.KeyedMutex != null)
+            {
+                var swCopy = Stopwatch.StartNew();
+                int hr = DxgiKeyedMutexHelper.AcquireSync(_copyTexture.KeyedMutex, 0, 500);
+                long tAcq = swCopy.ElapsedMilliseconds;
+                if (hr == DxgiKeyedMutexHelper.S_OK)
                 {
-                    _logger.LogWarning("WglDXLockObjectsNV failed; skipping frame");
-                    return;
-                }
-                long t1 = sw.ElapsedMilliseconds; // wglLock done
-
-                try
-                {
-                    // mpv renders into the FBO (backed by the shared GL texture).
-                    _player.RenderFrame((int)_glFbo, _width, _height);
-                    long t2 = sw.ElapsedMilliseconds; // render done
-                    // Inform mpv that the frame has been displayed (allows buffer reuse).
-                    _player.ReportSwap();
-                    long t3 = sw.ElapsedMilliseconds; // swap done
-
-                    long nowTick = Stopwatch.GetTimestamp();
-                    double intervalMs = _lastRenderTick == 0 ? 0 :
-                        (nowTick - _lastRenderTick) * 1000.0 / Stopwatch.Frequency;
-                    _lastRenderTick = nowTick;
-
-                    if (++_renderFrameCount % 5 == 0)
+                    _deviceManager.Context.CopyResource(_copyTexture.Texture, _wglTexture!.Texture);
+                    long tCopy = swCopy.ElapsedMilliseconds;
+                    _deviceManager.Context.Flush();
+                    long tFlush = swCopy.ElapsedMilliseconds;
+                    _copyTexture.KeyedMutex.ReleaseSync(1);
+                    long tRel = swCopy.ElapsedMilliseconds;
+                    if (_renderFrameCount % 5 == 0)
                         _logger.LogDebug(
-                            "[{Tag}#{N}] lockWait={W}ms wglLock={L}ms render={R}ms swap={S}ms | interval={I:F1}ms ({FPS:F1}fps)",
-                            _tag, _renderFrameCount, waitMs, t1, t2 - t1, t3 - t2,
-                            intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
+                            "[{Tag}#{N}] copy: acq={A}ms copy={C}ms flush={F}ms rel={R}ms",
+                            _tag, _renderFrameCount, tAcq, tCopy - tAcq, tFlush - tCopy, tRel - tFlush);
                 }
-                finally
+                else
                 {
-                    // Unlock returns D3D11 access to the texture.
-                    WglInterop.WglDXUnlockObjectsNV(_wglDevice, 1, &obj);
+                    _logger.LogDebug("[{Tag}] AcquireSync(copyTex,0) skipped hr={Hr:X} acqWait={A}ms", _tag, hr, tAcq);
+                    return;
                 }
             }
 
-            // Notify FrameSyncManager: D3D11 texture now contains the latest frame.
             FrameRendered?.Invoke();
         }
 
@@ -428,7 +436,8 @@ namespace Narabemi.Gpu
             if (_updateCallbackHandle.IsAllocated)    _updateCallbackHandle.Free();
             if (_getProcAddressHandle.IsAllocated)    _getProcAddressHandle.Free();
 
-            _texture?.Dispose();
+            _wglTexture?.Dispose();
+            _copyTexture?.Dispose();
             _renderRequest.Dispose();
             _glInitDone.Dispose();
 

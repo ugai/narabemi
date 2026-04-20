@@ -93,6 +93,74 @@ namespace Narabemi.Gpu
             CreateSharedTexture(width, height);
 
         /// <summary>
+        /// Creates a per-renderer texture with SharedKeyedMutex for cross-device GL→Blend sync.
+        /// The caller (MpvGlRenderer) acquires key=0, renders, releases key=1.
+        /// BlendRenderer acquires key=1, reads, releases key=0.
+        /// </summary>
+        public GpuTexture CreateRendererTexture(int width, int height)
+        {
+            if (_device is null) throw new InvalidOperationException("D3D11 device not initialized.");
+
+            var desc = new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.R8G8B8A8_UNorm, // RGBA matches GL's output via WGL_NV_DX_interop2
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+                MiscFlags = ResourceOptionFlags.SharedKeyedMutex, // implies Shared; do not combine
+            };
+
+            var texture = _device.CreateTexture2D(desc);
+            var srv = _device.CreateShaderResourceView(texture);
+            return new GpuTexture(texture, srv, width, height, _logger);
+        }
+
+        /// <summary>
+        /// Creates a Texture2D suitable for WGL_NV_DX_interop2 registration (GL render target).
+        /// Uses plain Shared (not SharedKeyedMutex) — WGL requires MISC_SHARED and the keyed
+        /// mutex protocol conflicts with WGL's internal key=0 binary lock.
+        /// </summary>
+        public GpuTexture CreateWglTexture(int width, int height)
+        {
+            if (_device is null) throw new InvalidOperationException("D3D11 device not initialized.");
+
+            var desc = new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.R8G8B8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+                MiscFlags = ResourceOptionFlags.Shared,
+            };
+
+            var texture = _device.CreateTexture2D(desc);
+            var srv = _device.CreateShaderResourceView(texture);
+            return new GpuTexture(texture, srv, width, height, _logger);
+        }
+
+        /// <summary>
+        /// Opens a renderer texture (created with CreateRendererTexture on another device)
+        /// on this device using its legacy DXGI shared handle.
+        /// The returned GpuTexture holds both the SRV and the KeyedMutex on this device.
+        /// </summary>
+        public GpuTexture OpenSharedTexture(IntPtr sharedHandle, int width, int height)
+        {
+            if (_device is null) throw new InvalidOperationException("D3D11 device not initialized.");
+
+            var texture = _device.OpenSharedResource<ID3D11Texture2D>(sharedHandle);
+            var srv = _device.CreateShaderResourceView(texture);
+            return new GpuTexture(texture, srv, width, height, _logger);
+        }
+
+        /// <summary>
         /// Checks whether the D3D11 device has been lost.
         /// Call periodically to detect GPU resets.
         /// </summary>

@@ -21,9 +21,15 @@ namespace Narabemi.Gpu
 
         /// <summary>
         /// Legacy shared handle (HANDLE) from IDXGIResource.GetSharedHandle().
-        /// Used by WGL_NV_DX_interop2 to register the texture as a GL object.
+        /// Used by WGL_NV_DX_interop2 and cross-device OpenSharedResource.
         /// </summary>
         public IntPtr SharedHandle { get; }
+
+        /// <summary>
+        /// Non-null when the texture was created with ResourceOptionFlags.SharedKeyedMutex.
+        /// Used to synchronize cross-device access between GL render and Blend CS dispatch.
+        /// </summary>
+        public IDXGIKeyedMutex? KeyedMutex { get; }
 
         public GpuTexture(ID3D11Texture2D texture, ID3D11ShaderResourceView srv, int width, int height, ILogger logger)
         {
@@ -33,8 +39,6 @@ namespace Narabemi.Gpu
             Height = height;
             _logger = logger;
 
-            // Dynamic textures (no MiscFlags.Shared) return zero or throw; that's fine —
-            // SharedHandle is only needed for the blend output texture (Avalonia presentation).
             try
             {
                 using var dxgiResource = texture.QueryInterface<IDXGIResource>();
@@ -44,12 +48,22 @@ namespace Narabemi.Gpu
             {
                 SharedHandle = IntPtr.Zero;
             }
+
+            try
+            {
+                KeyedMutex = texture.QueryInterface<IDXGIKeyedMutex>();
+            }
+            catch
+            {
+                KeyedMutex = null;
+            }
         }
 
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
+            KeyedMutex?.Dispose();
             Srv.Dispose();
             Texture.Dispose();
         }

@@ -131,25 +131,38 @@ namespace Narabemi
                     services.AddSingleton<AppStatesService>();
                     services.AddSingleton<ControlFadeManager>();
 
-                    // GPU pipeline services
-                    services.AddSingleton<D3D11DeviceManager>();
-                    services.AddSingleton<BlendRenderer>();
-                    services.AddSingleton<FrameSyncManager>();
+                    // GPU pipeline services — three separate D3D11 devices:
+                    // R1/R2 are exclusive to each renderer thread (no ContextLock contention).
+                    // Blend is used by BlendRenderer + FrameSyncManager.
+                    services.AddKeyedSingleton<D3D11DeviceManager>("R1",
+                        (sp, _) => new D3D11DeviceManager(sp.GetRequiredService<ILogger<D3D11DeviceManager>>()));
+                    services.AddKeyedSingleton<D3D11DeviceManager>("R2",
+                        (sp, _) => new D3D11DeviceManager(sp.GetRequiredService<ILogger<D3D11DeviceManager>>()));
+                    services.AddKeyedSingleton<D3D11DeviceManager>("Blend",
+                        (sp, _) => new D3D11DeviceManager(sp.GetRequiredService<ILogger<D3D11DeviceManager>>()));
+
+                    services.AddSingleton<BlendRenderer>(sp => new BlendRenderer(
+                        sp.GetRequiredKeyedService<D3D11DeviceManager>("Blend"),
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BlendRenderer>>()));
+                    services.AddSingleton<FrameSyncManager>(sp => new FrameSyncManager(
+                        sp.GetRequiredService<BlendRenderer>(),
+                        sp.GetRequiredKeyedService<D3D11DeviceManager>("Blend"),
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<FrameSyncManager>>()));
 
                     // Two independent mpv players (keyed)
                     services.AddKeyedSingleton<MpvPlayer>("PlayerA");
                     services.AddKeyedSingleton<MpvPlayer>("PlayerB");
 
-                    // GL renderers (one per player — each owns a WGL context + FBO)
+                    // GL renderers — each uses its own D3D11 device for lock-free rendering.
                     services.AddKeyedSingleton<MpvGlRenderer>("PlayerA",
                         (sp, _) => new MpvGlRenderer(
                             sp.GetRequiredKeyedService<MpvPlayer>("PlayerA"),
-                            sp.GetRequiredService<D3D11DeviceManager>(),
+                            sp.GetRequiredKeyedService<D3D11DeviceManager>("R1"),
                             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MpvGlRenderer>>()));
                     services.AddKeyedSingleton<MpvGlRenderer>("PlayerB",
                         (sp, _) => new MpvGlRenderer(
                             sp.GetRequiredKeyedService<MpvPlayer>("PlayerB"),
-                            sp.GetRequiredService<D3D11DeviceManager>(),
+                            sp.GetRequiredKeyedService<D3D11DeviceManager>("R2"),
                             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MpvGlRenderer>>()));
 
                     // Two independent VideoPlayerViewModels (keyed, each with their own MpvPlayer)

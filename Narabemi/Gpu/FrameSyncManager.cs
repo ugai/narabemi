@@ -24,6 +24,10 @@ namespace Narabemi.Gpu
         private MpvGlRenderer? _rendererA;
         private MpvGlRenderer? _rendererB;
 
+        // Renderer textures opened on BlendDevice for cross-device SRV + keyed mutex access.
+        private GpuTexture? _openedTexA;
+        private GpuTexture? _openedTexB;
+
         private int _frameReadyA;
         private int _frameReadyB;
         private bool _hasTextureA;
@@ -69,6 +73,34 @@ namespace Narabemi.Gpu
 
             _rendererA.FrameRendered += OnFrameRenderedA;
             _rendererB.FrameRendered += OnFrameRenderedB;
+
+            // Open each renderer texture on BlendDevice to get cross-device SRVs + keyed mutexes.
+            var hA = rendererA.Texture?.SharedHandle ?? IntPtr.Zero;
+            var hB = rendererB.Texture?.SharedHandle ?? IntPtr.Zero;
+
+            if (hA != IntPtr.Zero) _openedTexA = _deviceManager.OpenSharedTexture(hA, width, height);
+            if (hB != IntPtr.Zero) _openedTexB = _deviceManager.OpenSharedTexture(hB, width, height);
+
+            // Some DXGI driver implementations implicitly acquire the keyed mutex on the opening
+            // device when OpenSharedResource is called. Release key=0 immediately so the creating
+            // device (renderer) can AcquireSync(0) in RenderFrame. Safe to call in a loop:
+            // ReleaseSync fails with DXGI_ERROR_INVALID_CALL when not held, which we ignore.
+            TryReleaseKeyedMutex(_openedTexA, 0, "openedA");
+            TryReleaseKeyedMutex(_openedTexB, 0, "openedB");
+        }
+
+        private void TryReleaseKeyedMutex(GpuTexture? tex, ulong key, string name)
+        {
+            if (tex?.KeyedMutex == null) return;
+            try
+            {
+                tex.KeyedMutex.ReleaseSync(key);
+                _logger.LogInformation("[FSM] ReleaseSync({Name},{Key}) OK — implicit open-lock released", name, key);
+            }
+            catch
+            {
+                _logger.LogDebug("[FSM] ReleaseSync({Name},{Key}) skipped — not held", name, key);
+            }
         }
 
         private void OnFrameRenderedA()
@@ -106,8 +138,10 @@ namespace Narabemi.Gpu
             if (!_hasTextureA && !_hasTextureB) return;
             // Drop extra calls while one is already in flight.
             if (Interlocked.CompareExchange(ref _forceBlendPending, 1, 0) != 0) return;
-            StartReadbackThread(() => RunGpuBlend(onPhase2Complete: () =>
-                Interlocked.Exchange(ref _forceBlendPending, 0)));
+            // isForced=true: skip keyed mutex — renderer is idle when players are paused.
+            StartReadbackThread(() => RunGpuBlend(
+                onPhase2Complete: () => Interlocked.Exchange(ref _forceBlendPending, 0),
+                isForced: true));
         }
 
         private static void StartReadbackThread(Action work)
@@ -142,12 +176,15 @@ namespace Narabemi.Gpu
         {
             if (_disposed) return;
 
-            bool readyA = Interlocked.CompareExchange(ref _frameReadyA, 0, 1) == 1;
-            bool readyB = Interlocked.CompareExchange(ref _frameReadyB, 0, 1) == 1;
-
             bool bothLoaded = _hasTextureA && _hasTextureB;
-            if (bothLoaded && !(readyA && readyB))
+            if (bothLoaded)
             {
+                // Consume both flags only when both are ready. If only one is ready,
+                // restore the consumed flag so the renderer keeps holding key=1 and
+                // TryNotify can blend both frames when the other renderer also fires.
+                bool readyA = Interlocked.CompareExchange(ref _frameReadyA, 0, 1) == 1;
+                bool readyB = Interlocked.CompareExchange(ref _frameReadyB, 0, 1) == 1;
+                if (readyA && readyB) { RunGpuBlend(); return; }
                 if (readyA) Interlocked.Exchange(ref _frameReadyA, 1);
                 if (readyB) Interlocked.Exchange(ref _frameReadyB, 1);
                 return;
@@ -155,35 +192,72 @@ namespace Narabemi.Gpu
 
             if (!_hasTextureA && !_hasTextureB) return;
 
-            // Phase 1 runs on the render thread (we're already on it).
-            // Phase 2 (EndReadBack + BlendFrameReady) runs on a new AboveNormal thread.
-            RunGpuBlend();
+            // Single-video: blend whenever either renderer fires.
+            bool anyA = Interlocked.CompareExchange(ref _frameReadyA, 0, 1) == 1;
+            bool anyB = Interlocked.CompareExchange(ref _frameReadyB, 0, 1) == 1;
+            if (anyA || anyB) RunGpuBlend();
         }
 
         /// <summary>
         /// Two-phase GPU blend + readback.
         ///
-        /// Phase 1 (inside ContextLock on calling thread, ~0 ms GPU stall):
-        ///   PrepareInputs → CS Dispatch → BeginReadBack (CopyResource to staging back buffer).
-        ///   BeginReadBack is guarded by _readbackPending — skipped when Phase 2 is in flight,
-        ///   which prevents concurrent Map calls on the same staging texture.
+        /// Phase 1 (outside then inside BlendDevice.ContextLock):
+        ///   AcquireSync(1) on both opened textures (wait for renderer writes, outside lock)
+        ///   → CS Dispatch → BeginReadBack (CopyResource to staging)
+        ///   → ReleaseSync(0) on both textures (renderers may write again)
         ///
-        /// Phase 2 (new AboveNormal thread, inside ContextLock, ~5-30 ms GPU stall):
-        ///   EndReadBack (Map staging front → memcpy → Unmap) → BlendFrameReady.
-        ///   The staging texture reference is captured in Phase 1 before the lock is released,
-        ///   so it is race-free regardless of subsequent Phase 1 swaps.
+        /// Phase 2 (new AboveNormal thread, inside BlendDevice.ContextLock):
+        ///   EndReadBack (Map staging → memcpy → Unmap) → BlendFrameReady.
+        ///   Renderers run freely during Phase 2 (keyed mutexes already released).
+        ///
+        /// isForced=true (ForceBlend when paused): keyed mutex skipped — renderer is idle.
         /// </summary>
-        private void RunGpuBlend(Action? onPhase2Complete = null)
+        private void RunGpuBlend(Action? onPhase2Complete = null, bool isForced = false)
         {
-            var srvA = _rendererA?.Texture?.Srv;
-            var srvB = _rendererB?.Texture?.Srv;
+            // Use SRVs from opened textures (on BlendDevice) for cross-device binding.
+            // Fall back to renderer's own SRV in single-video mode.
+            var srvA = _openedTexA?.Srv ?? _rendererA?.Texture?.Srv;
+            var srvB = _openedTexB?.Srv ?? _rendererB?.Texture?.Srv;
             if (srvA is null && srvB is null) return;
 
-            // Single-video mode: duplicate the one available SRV to both slots.
             var effectiveSrvA = srvA ?? srvB!;
             var effectiveSrvB = srvB ?? srvA!;
 
-            // ── Phase 1: inside ContextLock ──────────────────────────────────────
+            // ── Keyed mutex acquire (outside ContextLock) ────────────────────────
+            // Normal: Acquire key=1 (renderer wrote) with 100ms timeout.
+            // Forced (paused): try key=1 then key=0, both non-blocking.
+            //   key=1 → renderer wrote before pausing; key=0 → blend already read and released.
+            //   If neither is available the mutex is being held; skip this pass.
+            bool acqA = false, acqB = false;
+            if (_openedTexA?.KeyedMutex != null && srvA == _openedTexA.Srv)
+            {
+                int hr = DxgiKeyedMutexHelper.AcquireSync(_openedTexA.KeyedMutex, 1, isForced ? 0 : 100);
+                if (hr != DxgiKeyedMutexHelper.S_OK && isForced)
+                    hr = DxgiKeyedMutexHelper.AcquireSync(_openedTexA.KeyedMutex, 0, 0);
+                if (hr != DxgiKeyedMutexHelper.S_OK)
+                {
+                    _logger.LogDebug("[Blend] AcquireSync(A,1) skipped ({Hr:X})", hr);
+                    onPhase2Complete?.Invoke();
+                    return;
+                }
+                acqA = true;
+            }
+            if (_openedTexB?.KeyedMutex != null && srvB == _openedTexB.Srv)
+            {
+                int hr = DxgiKeyedMutexHelper.AcquireSync(_openedTexB.KeyedMutex, 1, isForced ? 0 : 100);
+                if (hr != DxgiKeyedMutexHelper.S_OK && isForced)
+                    hr = DxgiKeyedMutexHelper.AcquireSync(_openedTexB.KeyedMutex, 0, 0);
+                if (hr != DxgiKeyedMutexHelper.S_OK)
+                {
+                    _logger.LogDebug("[Blend] AcquireSync(B,1) skipped ({Hr:X})", hr);
+                    if (acqA) _openedTexA!.KeyedMutex!.ReleaseSync(0);
+                    onPhase2Complete?.Invoke();
+                    return;
+                }
+                acqB = true;
+            }
+
+            // ── Phase 1: inside BlendDevice.ContextLock ─────────────────────────
             ID3D11Texture2D? stagingRef = null;
             int blendN;
             var swWait = Stopwatch.StartNew();
@@ -192,18 +266,12 @@ namespace Narabemi.Gpu
                 long waitMs = swWait.ElapsedMilliseconds;
                 var sw = Stopwatch.StartNew();
 
-                // Pull the latest blend params from the ViewModel before each CS dispatch.
                 _blendParamsProvider?.Invoke();
 
-                // Bind mpv SRVs directly: no intermediate CopyResource needed.
-                // WGL interop unlock occurred in RenderFrame before ContextLock was released.
                 long t1 = sw.ElapsedMilliseconds;
                 _blend.Render(effectiveSrvA, effectiveSrvB, _currentParams);
                 long t2 = sw.ElapsedMilliseconds;
 
-                // BeginReadBack only when no Phase 2 task is in flight.
-                // CAS must precede BeginReadBack to prevent cycle N+2 from writing to
-                // the same staging texture that cycle N's Phase 2 is still mapping.
                 Interlocked.Increment(ref _totalBlendAttempts);
                 bool doReadback = Interlocked.CompareExchange(ref _readbackPending, 1, 0) == 0;
                 if (doReadback)
@@ -212,7 +280,6 @@ namespace Narabemi.Gpu
                     Interlocked.Increment(ref _readbackSkipped);
                 long t3 = sw.ElapsedMilliseconds;
 
-                // Periodic skip rate summary (every 5 seconds)
                 long skipNow = Stopwatch.GetTimestamp();
                 if (skipNow - _lastSkipLogTick > Stopwatch.Frequency * 5)
                 {
@@ -236,15 +303,18 @@ namespace Narabemi.Gpu
                         intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
             }
 
+            // ── Release keyed mutexes (outside ContextLock) ─────────────────────
+            // Renderers may now write the next frame while Phase 2 readback runs.
+            if (acqA) _openedTexA!.KeyedMutex!.ReleaseSync(0);
+            if (acqB) _openedTexB!.KeyedMutex!.ReleaseSync(0);
+
             if (stagingRef is null)
             {
-                // Phase 2 skipped (readback in flight or BeginReadBack returned null).
-                // Invoke completion callback immediately so ForceBlend can coalesce correctly.
                 onPhase2Complete?.Invoke();
                 return;
             }
 
-            // ── Phase 2: EndReadBack + BlendFrameReady on a new AboveNormal thread ─────
+            // ── Phase 2: EndReadBack + BlendFrameReady on a new AboveNormal thread ─
             StartReadbackThread(() =>
             {
                 try
@@ -276,6 +346,9 @@ namespace Narabemi.Gpu
 
             if (_rendererA != null) _rendererA.FrameRendered -= OnFrameRenderedA;
             if (_rendererB != null) _rendererB.FrameRendered -= OnFrameRenderedB;
+
+            _openedTexA?.Dispose();
+            _openedTexB?.Dispose();
 
             _logger.LogInformation("FrameSyncManager disposed");
         }

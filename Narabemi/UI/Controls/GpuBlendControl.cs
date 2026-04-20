@@ -71,10 +71,18 @@ namespace Narabemi.UI.Controls
         {
             try
             {
-                // 1. D3D11 device (still needed for future GPU path; also validates hardware)
-                var d3d = App.Services?.GetService<D3D11DeviceManager>();
-                if (d3d is null) { _logger.LogError("D3D11DeviceManager not in DI"); return; }
-                if (!d3d.IsInitialized) d3d.Initialize();
+                // 1. D3D11 devices — R1/R2 for each renderer, Blend for CS dispatch.
+                var r1 = App.Services?.GetKeyedService<D3D11DeviceManager>("R1");
+                var r2 = App.Services?.GetKeyedService<D3D11DeviceManager>("R2");
+                var blendDev = App.Services?.GetKeyedService<D3D11DeviceManager>("Blend");
+                if (r1 is null || r2 is null || blendDev is null)
+                {
+                    _logger.LogError("D3D11DeviceManagers not in DI");
+                    return;
+                }
+                if (!r1.IsInitialized) r1.Initialize();
+                if (!r2.IsInitialized) r2.Initialize();
+                if (!blendDev.IsInitialized) blendDev.Initialize();
 
                 // 2. mpv headless init
                 App.Services?.GetKeyedService<VideoPlayerViewModel>("PlayerA")?.InitMpvHeadless();
