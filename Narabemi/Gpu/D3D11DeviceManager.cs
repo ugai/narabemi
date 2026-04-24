@@ -116,7 +116,23 @@ namespace Narabemi.Gpu
 
             var texture = _device.CreateTexture2D(desc);
             var srv = _device.CreateShaderResourceView(texture);
-            return new GpuTexture(texture, srv, width, height, _logger);
+            var gpuTex = new GpuTexture(texture, srv, width, height, _logger);
+            // Reset keyed mutex to key=0. The driver may recycle texture handles whose
+            // previous occupant left the mutex at key=1 (renderer released but blend never
+            // acquired before exit), which would permanently block AcquireSync(0).
+            ResetKeyedMutex(gpuTex);
+            return gpuTex;
+        }
+
+        private static void ResetKeyedMutex(GpuTexture tex)
+        {
+            if (tex.KeyedMutex is null) return;
+            // Try the expected initial state (key=0) first.
+            int hr = DxgiKeyedMutexHelper.AcquireSync(tex.KeyedMutex, 0, 0);
+            if (hr == DxgiKeyedMutexHelper.S_OK) { tex.KeyedMutex.ReleaseSync(0); return; }
+            // Residual key=1 from a previous renderer cycle — reset to key=0.
+            hr = DxgiKeyedMutexHelper.AcquireSync(tex.KeyedMutex, 1, 0);
+            if (hr == DxgiKeyedMutexHelper.S_OK) tex.KeyedMutex.ReleaseSync(0);
         }
 
         /// <summary>

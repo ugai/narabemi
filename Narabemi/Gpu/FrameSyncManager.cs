@@ -42,6 +42,11 @@ namespace Narabemi.Gpu
         // Guard for ForceBlend: prevents queuing more than one concurrent forced pass.
         private int _forceBlendPending;
 
+        // Guard for normal frame-driven blend: at most one RunGpuBlend in flight at a time.
+        // Cleared by onPhase2Complete after the full blend (Phase 1 + readback) finishes.
+        // Ensures renderer threads are never blocked by Blend ContextLock contention.
+        private int _blendRunning;
+
         // Guard for Phase 2 readback: only one Map task in flight at a time.
         // Prevents multiple concurrent Map calls on the same staging texture.
         // Set to 1 before BeginReadBack; reset to 0 after EndReadBack completes.
@@ -184,7 +189,18 @@ namespace Narabemi.Gpu
                 // TryNotify can blend both frames when the other renderer also fires.
                 bool readyA = Interlocked.CompareExchange(ref _frameReadyA, 0, 1) == 1;
                 bool readyB = Interlocked.CompareExchange(ref _frameReadyB, 0, 1) == 1;
-                if (readyA && readyB) { RunGpuBlend(); return; }
+                if (readyA && readyB)
+                {
+                    // If a blend is already running, restore flags so the post-Phase-2
+                    // TryNotify retry (see TriggerBlend) can pick them up. Leaving them
+                    // consumed while key=1 is never acquired leads to a 500 ms deadlock.
+                    if (!TriggerBlend())
+                    {
+                        Interlocked.Exchange(ref _frameReadyA, 1);
+                        Interlocked.Exchange(ref _frameReadyB, 1);
+                    }
+                    return;
+                }
                 if (readyA) Interlocked.Exchange(ref _frameReadyA, 1);
                 if (readyB) Interlocked.Exchange(ref _frameReadyB, 1);
                 return;
@@ -195,7 +211,34 @@ namespace Narabemi.Gpu
             // Single-video: blend whenever either renderer fires.
             bool anyA = Interlocked.CompareExchange(ref _frameReadyA, 0, 1) == 1;
             bool anyB = Interlocked.CompareExchange(ref _frameReadyB, 0, 1) == 1;
-            if (anyA || anyB) RunGpuBlend();
+            if (anyA || anyB)
+            {
+                if (!TriggerBlend())
+                {
+                    if (anyA) Interlocked.Exchange(ref _frameReadyA, 1);
+                    if (anyB) Interlocked.Exchange(ref _frameReadyB, 1);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Fires RunGpuBlend on a dedicated thread so renderer threads are never blocked
+        /// by Blend ContextLock contention (Phase 2 Map can hold it for 12–50 ms).
+        /// At most one blend is in flight at a time; when the blend completes, TryNotify
+        /// is called again to pick up any frames that arrived while it was running.
+        /// Returns true if the blend was started, false if one was already in flight.
+        /// </summary>
+        private bool TriggerBlend()
+        {
+            if (Interlocked.CompareExchange(ref _blendRunning, 1, 0) != 0) return false;
+            StartReadbackThread(() => RunGpuBlend(
+                onPhase2Complete: () =>
+                {
+                    Interlocked.Exchange(ref _blendRunning, 0);
+                    // Retry: pick up any frames that arrived during Phase 1+2.
+                    if (!_disposed) TryNotify();
+                }));
+            return true;
         }
 
         /// <summary>

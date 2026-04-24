@@ -25,10 +25,13 @@ namespace Narabemi.Gpu
         private readonly D3D11DeviceManager _deviceManager;
         private readonly ILogger<MpvGlRenderer> _logger;
 
-        // WGL render target (plain Shared — WGL's key=0 binary protocol is incompatible with SharedKeyedMutex)
-        private GpuTexture? _wglTexture;
+        // WGL render targets — double-buffered so the GPU can drain one while we render to the other.
+        // Plain Shared (not SharedKeyedMutex) because WGL's key=0 binary protocol conflicts with that.
+        // After rendering to _wglTextures[_wglFront], flip _wglFront so the next frame uses the other.
+        private readonly GpuTexture?[] _wglTextures = new GpuTexture?[2];
+        private int _wglFront;  // render-thread-only; no sync needed
 
-        // Cross-device texture (SharedKeyedMutex) — copy destination from _wglTexture after each frame.
+        // Cross-device texture (SharedKeyedMutex) — copy destination from _wglTextures[_wglFront] each frame.
         // Blend reads from this via AcquireSync(1) / ReleaseSync(0).
         private GpuTexture? _copyTexture;
 
@@ -44,13 +47,13 @@ namespace Narabemi.Gpu
         private Exception? _glInitException;
 
         // WGL / DX-interop handles (all accessed only from the render thread)
-        private IntPtr _hWnd;
-        private IntPtr _hDC;
-        private IntPtr _hGLRC;
-        private IntPtr _wglDevice;   // HANDLE from wglDXOpenDeviceNV
-        private IntPtr _wglObject;   // HANDLE from wglDXRegisterObjectNV
-        private uint   _glTexture;   // GL texture name (backed by D3D11 texture)
-        private uint   _glFbo;       // GL framebuffer object
+        private IntPtr   _hWnd;
+        private IntPtr   _hDC;
+        private IntPtr   _hGLRC;
+        private IntPtr   _wglDevice;          // HANDLE from wglDXOpenDeviceNV
+        private IntPtr[] _wglObjects  = new IntPtr[2];  // HANDLEs from wglDXRegisterObjectNV
+        private uint[]   _glTextures  = new uint[2];    // GL texture names (backed by D3D11)
+        private uint[]   _glFbos      = new uint[2];    // GL FBOs, one per WGL texture
 
         // Pinned callbacks — must outlive the mpv render context
         private MpvRenderUpdateFn?          _updateCallback;
@@ -91,14 +94,16 @@ namespace Narabemi.Gpu
             _width  = width;
             _height = height;
 
-            // Two textures per renderer:
-            //   _wglTexture  — plain Shared, WGL render target. WGL uses key=0 binary lock;
-            //                  SharedKeyedMutex would conflict, so we use plain Shared here.
-            //   _copyTexture — SharedKeyedMutex, cross-device. After each frame: renderer
-            //                  acquires key=0, copies _wglTexture→_copyTexture, releases key=1
-            //                  so Blend can AcquireSync(1) and read on its own device.
-            _wglTexture  = _deviceManager.CreateWglTexture(width, height);
-            _copyTexture = _deviceManager.CreateRendererTexture(width, height);
+            // Double-buffered WGL render targets + one cross-device copy texture:
+            //   _wglTextures[0/1] — plain Shared, alternating WGL render targets.
+            //                       GPU drains buffer N while we render to buffer N^1,
+            //                       eliminating the wglDXLockObjectsNV GPU-drain stall.
+            //   _copyTexture      — SharedKeyedMutex, cross-device. After each frame:
+            //                       renderer copies _wglTextures[_wglFront]→_copyTexture,
+            //                       Blend reads via AcquireSync(1)/ReleaseSync(0).
+            _wglTextures[0] = _deviceManager.CreateWglTexture(width, height);
+            _wglTextures[1] = _deviceManager.CreateWglTexture(width, height);
+            _copyTexture    = _deviceManager.CreateRendererTexture(width, height);
 
             _renderThread = new Thread(RenderLoop)
             {
@@ -213,35 +218,35 @@ namespace Narabemi.Gpu
 
             // 5. Allocate a GL texture name and register the D3D11 texture as a GL object.
             //    WGL_ACCESS_WRITE_DISCARD_NV: GL writes, D3D11 reads (our use case).
-            var textures = new uint[1];
-            WglInterop.GenTextures(1, textures);
-            _glTexture = textures[0];
+            WglInterop.GenTextures(2, _glTextures);
 
-            _wglObject = WglInterop.WglDXRegisterObjectNV(
-                _wglDevice,
-                _wglTexture!.Texture.NativePointer,
-                _glTexture,
-                WglInterop.GL_TEXTURE_2D,
-                WglInterop.WGL_ACCESS_WRITE_DISCARD_NV);
-            if (_wglObject == IntPtr.Zero)
-                throw new InvalidOperationException("wglDXRegisterObjectNV failed.");
+            for (int i = 0; i < 2; i++)
+            {
+                _wglObjects[i] = WglInterop.WglDXRegisterObjectNV(
+                    _wglDevice,
+                    _wglTextures[i]!.Texture.NativePointer,
+                    _glTextures[i],
+                    WglInterop.GL_TEXTURE_2D,
+                    WglInterop.WGL_ACCESS_WRITE_DISCARD_NV);
+                if (_wglObjects[i] == IntPtr.Zero)
+                    throw new InvalidOperationException($"wglDXRegisterObjectNV failed for buffer {i}.");
+            }
 
-            // 6. Create a GL framebuffer and attach the registered texture.
-            var fbos = new uint[1];
-            GlFunctions.GenFramebuffers(1, fbos);
-            _glFbo = fbos[0];
-            GlFunctions.BindFramebuffer(GlFunctions.GL_FRAMEBUFFER, _glFbo);
-            GlFunctions.FramebufferTexture2D(
-                GlFunctions.GL_FRAMEBUFFER,
-                GlFunctions.GL_COLOR_ATTACHMENT0,
-                GlFunctions.GL_TEXTURE_2D,
-                _glTexture,
-                0);
-
-            var status = GlFunctions.CheckFramebufferStatus(GlFunctions.GL_FRAMEBUFFER);
-            if (status != GlFunctions.GL_FRAMEBUFFER_COMPLETE)
-                throw new InvalidOperationException($"GL FBO is incomplete: status=0x{status:X}");
-
+            // 6. Create two GL framebuffers, each pre-attached to one of the double-buffer textures.
+            GlFunctions.GenFramebuffers(2, _glFbos);
+            for (int i = 0; i < 2; i++)
+            {
+                GlFunctions.BindFramebuffer(GlFunctions.GL_FRAMEBUFFER, _glFbos[i]);
+                GlFunctions.FramebufferTexture2D(
+                    GlFunctions.GL_FRAMEBUFFER,
+                    GlFunctions.GL_COLOR_ATTACHMENT0,
+                    GlFunctions.GL_TEXTURE_2D,
+                    _glTextures[i],
+                    0);
+                var fboStatus = GlFunctions.CheckFramebufferStatus(GlFunctions.GL_FRAMEBUFFER);
+                if (fboStatus != GlFunctions.GL_FRAMEBUFFER_COMPLETE)
+                    throw new InvalidOperationException($"GL FBO[{i}] is incomplete: status=0x{fboStatus:X}");
+            }
             GlFunctions.BindFramebuffer(GlFunctions.GL_FRAMEBUFFER, 0);
 
             // 7. Create mpv GL render context.
@@ -278,7 +283,8 @@ namespace Narabemi.Gpu
                 Marshal.FreeCoTaskMem(apiTypeStr);
             }
 
-            _logger.LogInformation("WGL GL context ready (FBO={Fbo}, glTex={Tex})", _glFbo, _glTexture);
+            _logger.LogInformation("WGL GL context ready (FBO={Fbo0}/{Fbo1}, glTex={Tex0}/{Tex1})",
+                _glFbos[0], _glFbos[1], _glTextures[0], _glTextures[1]);
         }
 
         /// <summary>
@@ -308,10 +314,12 @@ namespace Narabemi.Gpu
         {
             // WGL uses a binary key=0 protocol: wglDXLock = D3D releases(0)/GL acquires(0),
             // wglDXUnlock = GL releases(0)/D3D acquires(0). Key never becomes 1.
-            // After wglDXUnlock we manually copy _wglTexture → _copyTexture (SharedKeyedMutex)
-            // with AcquireSync(0)→CopyResource→Flush→ReleaseSync(1) so Blend can AcquireSync(1).
+            // Double-buffer: lock _wglObjects[_wglFront], render, unlock. Then copy the front
+            // buffer to _copyTexture and flip _wglFront. The GPU drains the previous front buffer
+            // while we render to the new front, eliminating the wglDXLock GPU-drain stall.
+            int front = _wglFront;
             var sw = Stopwatch.StartNew();
-            var obj = _wglObject;
+            var obj = _wglObjects[front];
             if (!WglInterop.WglDXLockObjectsNV(_wglDevice, 1, &obj))
             {
                 _logger.LogWarning("WglDXLockObjectsNV failed; skipping frame");
@@ -321,7 +329,7 @@ namespace Narabemi.Gpu
 
             try
             {
-                _player.RenderFrame((int)_glFbo, _width, _height);
+                _player.RenderFrame((int)_glFbos[front], _width, _height);
                 long t2 = sw.ElapsedMilliseconds;
                 _player.ReportSwap();
                 long t3 = sw.ElapsedMilliseconds;
@@ -342,7 +350,7 @@ namespace Narabemi.Gpu
                 WglInterop.WglDXUnlockObjectsNV(_wglDevice, 1, &obj);
             }
 
-            // Copy _wglTexture → _copyTexture with keyed mutex sync.
+            // Copy _wglTextures[front] → _copyTexture with keyed mutex sync.
             // AcquireSync(0): initial state after creation, and after Blend releases(0).
             if (_copyTexture?.KeyedMutex != null)
             {
@@ -351,12 +359,13 @@ namespace Narabemi.Gpu
                 long tAcq = swCopy.ElapsedMilliseconds;
                 if (hr == DxgiKeyedMutexHelper.S_OK)
                 {
-                    _deviceManager.Context.CopyResource(_copyTexture.Texture, _wglTexture!.Texture);
+                    _deviceManager.Context.CopyResource(_copyTexture.Texture, _wglTextures[front]!.Texture);
                     long tCopy = swCopy.ElapsedMilliseconds;
                     _deviceManager.Context.Flush();
                     long tFlush = swCopy.ElapsedMilliseconds;
                     _copyTexture.KeyedMutex.ReleaseSync(1);
                     long tRel = swCopy.ElapsedMilliseconds;
+                    _wglFront ^= 1;  // flip: next frame renders to the other buffer
                     if (_renderFrameCount % 5 == 0)
                         _logger.LogDebug(
                             "[{Tag}#{N}] copy: acq={A}ms copy={C}ms flush={F}ms rel={R}ms",
@@ -374,26 +383,27 @@ namespace Narabemi.Gpu
 
         private void TeardownGlContext()
         {
-            // Unregister GL object before deleting resources
-            if (_wglObject != IntPtr.Zero)
+            // Unregister both GL objects before deleting resources
+            for (int i = 0; i < 2; i++)
             {
-                WglInterop.WglDXUnregisterObjectNV(_wglDevice, _wglObject);
-                _wglObject = IntPtr.Zero;
+                if (_wglObjects[i] != IntPtr.Zero)
+                {
+                    WglInterop.WglDXUnregisterObjectNV(_wglDevice, _wglObjects[i]);
+                    _wglObjects[i] = IntPtr.Zero;
+                }
             }
 
-            // Delete GL FBO
-            if (_glFbo != 0)
-            {
-                GlFunctions.DeleteFramebuffers(1, new[] { _glFbo });
-                _glFbo = 0;
-            }
+            // Delete GL FBOs
+            var activeFbos = System.Linq.Enumerable.ToArray(
+                System.Linq.Enumerable.Where(_glFbos, f => f != 0));
+            if (activeFbos.Length > 0) GlFunctions.DeleteFramebuffers(activeFbos.Length, activeFbos);
+            _glFbos[0] = _glFbos[1] = 0;
 
-            // Delete GL texture name (the underlying D3D11 texture is managed separately)
-            if (_glTexture != 0)
-            {
-                WglInterop.DeleteTextures(1, new[] { _glTexture });
-                _glTexture = 0;
-            }
+            // Delete GL texture names (underlying D3D11 textures are managed separately)
+            var activeTex = System.Linq.Enumerable.ToArray(
+                System.Linq.Enumerable.Where(_glTextures, t => t != 0));
+            if (activeTex.Length > 0) WglInterop.DeleteTextures(activeTex.Length, activeTex);
+            _glTextures[0] = _glTextures[1] = 0;
 
             // Close DX-interop device handle
             if (_wglDevice != IntPtr.Zero)
@@ -436,7 +446,8 @@ namespace Narabemi.Gpu
             if (_updateCallbackHandle.IsAllocated)    _updateCallbackHandle.Free();
             if (_getProcAddressHandle.IsAllocated)    _getProcAddressHandle.Free();
 
-            _wglTexture?.Dispose();
+            _wglTextures[0]?.Dispose();
+            _wglTextures[1]?.Dispose();
             _copyTexture?.Dispose();
             _renderRequest.Dispose();
             _glInitDone.Dispose();
