@@ -126,7 +126,7 @@ namespace Narabemi.Mpv
             var sizeArr = new int[] { width, height };
             var stride = strideBytes;
 
-            var formatStr = Marshal.StringToCoTaskMemAnsi("bgra");
+            var formatStr = Marshal.StringToCoTaskMemAnsi("rgba");
             var sizeHandle = GCHandle.Alloc(sizeArr, GCHandleType.Pinned);
             try
             {
