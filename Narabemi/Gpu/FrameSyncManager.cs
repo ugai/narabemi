@@ -57,9 +57,7 @@ namespace Narabemi.Gpu
         private long _lastBlendTick;
 
         // Readback skip tracking
-        private long _totalBlendAttempts;
         private long _readbackSkipped;
-        private long _lastSkipLogTick;
 
         /// <summary>Fires on a render thread when a blended frame is ready for display.</summary>
         public event Action? BlendFrameReady;
@@ -300,22 +298,15 @@ namespace Narabemi.Gpu
                 _blend.Render(effectiveSrvA, effectiveSrvB, _currentParams);
                 long t2 = sw.ElapsedMilliseconds;
 
-                Interlocked.Increment(ref _totalBlendAttempts);
                 bool doReadback = Interlocked.CompareExchange(ref _readbackPending, 1, 0) == 0;
                 if (doReadback)
                     stagingRef = _blend.BeginReadBack();
                 else
-                    Interlocked.Increment(ref _readbackSkipped);
-                long t3 = sw.ElapsedMilliseconds;
-
-                long skipNow = Stopwatch.GetTimestamp();
-                if (skipNow - _lastSkipLogTick > Stopwatch.Frequency * 5)
                 {
-                    _lastSkipLogTick = skipNow;
-                    _logger.LogDebug("[Blend] skip={S}/{T}",
-                        Interlocked.Read(ref _readbackSkipped),
-                        Interlocked.Read(ref _totalBlendAttempts));
+                    Interlocked.Increment(ref _readbackSkipped);
+                    _logger.LogWarning("[Blend#{N}] readback SKIPPED — Phase 2 still in flight", _blendFrameCount + 1);
                 }
+                long t3 = sw.ElapsedMilliseconds;
 
                 long nowTick = Stopwatch.GetTimestamp();
                 double intervalMs = _lastBlendTick == 0 ? 0 :
@@ -323,12 +314,11 @@ namespace Narabemi.Gpu
                 _lastBlendTick = nowTick;
 
                 blendN = ++_blendFrameCount;
-                if (blendN % 5 == 0)
-                    _logger.LogDebug(
-                        "[Blend#{N}] lockWait={W}ms prepare={P}ms cs={C}ms beginRB={B}ms{Skip} | interval={I:F1}ms ({FPS:F1}fps)",
-                        blendN, waitMs, t1, t2 - t1, t3 - t2,
-                        stagingRef is null ? "(skip)" : "",
-                        intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
+                _logger.LogInformation(
+                    "[Blend#{N}] lockWait={W}ms prepare={P}ms cs={C}ms beginRB={B}ms{Skip} | interval={I:F1}ms ({FPS:F1}fps)",
+                    blendN, waitMs, t1, t2 - t1, t3 - t2,
+                    stagingRef is null ? "(skip)" : "",
+                    intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
             }
 
             // ── Release keyed mutexes (outside ContextLock) ─────────────────────
@@ -353,9 +343,8 @@ namespace Narabemi.Gpu
                     {
                         ph2LockWait = swLock.ElapsedMilliseconds;
                         _blend.EndReadBack(stagingRef, out long mapMs, out long memcpyMs);
-                        if (blendN % 5 == 0)
-                            _logger.LogDebug("[Blend#{N}] ph2 lockWait={L}ms map={M}ms memcpy={C}ms",
-                                blendN, ph2LockWait, mapMs, memcpyMs);
+                        _logger.LogInformation("[Blend#{N}] ph2 lockWait={L}ms map={M}ms memcpy={C}ms",
+                            blendN, ph2LockWait, mapMs, memcpyMs);
                     }
                     if (!_disposed) BlendFrameReady?.Invoke();
                 }

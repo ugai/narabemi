@@ -210,6 +210,8 @@ namespace Narabemi.Mpv
             // Software decoding — avoids d3d11va-copy GPU↔GPU overhead that serializes GL rendering.
             // Switch back to "auto" if CPU decode becomes the bottleneck on higher-resolution content.
             CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-fast", "yes"));
+            CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-threads", "0"));
         }
 
         private void StartEventLoop()

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -37,6 +38,8 @@ namespace Narabemi.UI.Controls
         private long _lastPresentTick;
         private int _renderCallCount;
         private long _lastRenderTick;
+        private long _blendReadyTick;
+        private int _frameDropCount;
 
         public GpuBlendControl()
             : this(
@@ -133,7 +136,12 @@ namespace Narabemi.UI.Controls
 
         private void OnBlendFrameReady()
         {
-            if (_frameScheduled) return;
+            if (_frameScheduled)
+            {
+                Interlocked.Increment(ref _frameDropCount);
+                return;
+            }
+            _blendReadyTick = Stopwatch.GetTimestamp();
             _frameScheduled = true;
             Dispatcher.UIThread.Post(PresentFrame, DispatcherPriority.Render);
         }
@@ -163,8 +171,9 @@ namespace Narabemi.UI.Controls
 
             try
             {
-                // Blend parameters are now applied in RunGpuBlend via ReadAndApplyBlendParams.
-                // PresentFrame only needs to copy the already-blended CPU buffer to the bitmap.
+                double postWaitMs = _blendReadyTick != 0
+                    ? (Stopwatch.GetTimestamp() - _blendReadyTick) * 1000.0 / Stopwatch.Frequency
+                    : 0;
 
                 // Copy GPU blend result → WriteableBitmap
                 var cpuOutput = _blendRenderer.CpuOutput;
@@ -192,11 +201,11 @@ namespace Narabemi.UI.Controls
                     (nowTick - _lastPresentTick) * 1000.0 / Stopwatch.Frequency;
                 _lastPresentTick = nowTick;
 
-                if (++_presentFrameCount % 5 == 0)
-                    _logger.LogDebug(
-                        "[Present#{N}] copy={C}ms | interval={I:F1}ms ({FPS:F1}fps)",
-                        _presentFrameCount, copyMs,
-                        intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
+                ++_presentFrameCount;
+                _logger.LogInformation(
+                    "[Present#{N}] postWait={P:F1}ms copy={C}ms drops={D} | interval={I:F1}ms ({FPS:F1}fps)",
+                    _presentFrameCount, postWaitMs, copyMs, _frameDropCount,
+                    intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
 
                 InvalidateVisual();
             }
