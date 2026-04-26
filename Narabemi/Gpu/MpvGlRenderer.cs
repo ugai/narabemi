@@ -367,13 +367,13 @@ namespace Narabemi.Gpu
                     long tRel = swCopy.ElapsedMilliseconds;
                     _wglFront ^= 1;  // flip: next frame renders to the other buffer
                     if (_renderFrameCount % 5 == 0)
-                        _logger.LogDebug(
-                            "[{Tag}#{N}] copy: acq={A}ms copy={C}ms flush={F}ms rel={R}ms",
+                        _logger.LogInformation(
+                            "[{Tag}#{N}] copyAcqWait={A}ms copy={C}ms flush={F}ms rel={R}ms",
                             _tag, _renderFrameCount, tAcq, tCopy - tAcq, tFlush - tCopy, tRel - tFlush);
                 }
                 else
                 {
-                    _logger.LogDebug("[{Tag}] AcquireSync(copyTex,0) skipped hr={Hr:X} acqWait={A}ms", _tag, hr, tAcq);
+                    _logger.LogWarning("[{Tag}#{N}] AcquireSync(copyTex,0) skipped hr={Hr:X} acqWait={A}ms", _tag, _renderFrameCount, hr, tAcq);
                     return;
                 }
             }
@@ -448,6 +448,12 @@ namespace Narabemi.Gpu
 
             _wglTextures[0]?.Dispose();
             _wglTextures[1]?.Dispose();
+            // Leave keyed mutex at key=0 so the next process can AcquireSync(0) cleanly.
+            // The renderer normally ends in key=1 (after ReleaseSync(1) in RenderFrame).
+            if (_copyTexture?.KeyedMutex is not null)
+            {
+                try { _copyTexture.KeyedMutex.ReleaseSync(0); } catch { /* not held — fine */ }
+            }
             _copyTexture?.Dispose();
             _renderRequest.Dispose();
             _glInitDone.Dispose();

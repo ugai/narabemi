@@ -207,8 +207,9 @@ namespace Narabemi.Mpv
             CheckError(MpvApi.SetOptionString(_ctx, "input-vo-keyboard", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "osc", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "osd-level", "0"));
-            // Hardware video decoding — offloads decode from CPU to GPU/dedicated HW
-            CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "auto"));
+            // Software decoding — avoids d3d11va-copy GPU↔GPU overhead that serializes GL rendering.
+            // Switch back to "auto" if CPU decode becomes the bottleneck on higher-resolution content.
+            CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "no"));
         }
 
         private void StartEventLoop()

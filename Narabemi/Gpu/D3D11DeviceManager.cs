@@ -117,22 +117,40 @@ namespace Narabemi.Gpu
             var texture = _device.CreateTexture2D(desc);
             var srv = _device.CreateShaderResourceView(texture);
             var gpuTex = new GpuTexture(texture, srv, width, height, _logger);
-            // Reset keyed mutex to key=0. The driver may recycle texture handles whose
-            // previous occupant left the mutex at key=1 (renderer released but blend never
-            // acquired before exit), which would permanently block AcquireSync(0).
-            ResetKeyedMutex(gpuTex);
+            // Reset keyed mutex to key=0 — driver may recycle handles left at key=1 by
+            // a previous process exit, which would permanently block AcquireSync(0).
+            ResetKeyedMutex(gpuTex, "create");
             return gpuTex;
         }
 
-        private static void ResetKeyedMutex(GpuTexture tex)
+        /// <summary>
+        /// Ensures the keyed mutex is at key=0 (the "renderer may write" state).
+        /// Handles WAIT_ABANDONED and residual key=1 left by a previous process.
+        /// Uses a 100 ms blocking timeout to survive transient cross-device races.
+        /// </summary>
+        public void ResetKeyedMutex(GpuTexture tex, string contextName)
         {
             if (tex.KeyedMutex is null) return;
-            // Try the expected initial state (key=0) first.
-            int hr = DxgiKeyedMutexHelper.AcquireSync(tex.KeyedMutex, 0, 0);
-            if (hr == DxgiKeyedMutexHelper.S_OK) { tex.KeyedMutex.ReleaseSync(0); return; }
-            // Residual key=1 from a previous renderer cycle — reset to key=0.
-            hr = DxgiKeyedMutexHelper.AcquireSync(tex.KeyedMutex, 1, 0);
-            if (hr == DxgiKeyedMutexHelper.S_OK) tex.KeyedMutex.ReleaseSync(0);
+
+            // Try key=0 (clean / already reset).
+            int hr = DxgiKeyedMutexHelper.AcquireSync(tex.KeyedMutex, 0, 100);
+            if (hr is DxgiKeyedMutexHelper.S_OK or DxgiKeyedMutexHelper.WAIT_ABANDONED)
+            {
+                tex.KeyedMutex.ReleaseSync(0);
+                _logger.LogInformation("[D3D] ResetKeyedMutex({Ctx}) key=0 restored (was clean/abandoned hr={Hr:X})", contextName, hr);
+                return;
+            }
+
+            // Residual key=1 left by previous renderer cycle or crashed process.
+            hr = DxgiKeyedMutexHelper.AcquireSync(tex.KeyedMutex, 1, 100);
+            if (hr is DxgiKeyedMutexHelper.S_OK or DxgiKeyedMutexHelper.WAIT_ABANDONED)
+            {
+                tex.KeyedMutex.ReleaseSync(0);
+                _logger.LogInformation("[D3D] ResetKeyedMutex({Ctx}) key=0 restored (was residual-1 hr={Hr:X})", contextName, hr);
+                return;
+            }
+
+            _logger.LogWarning("[D3D] ResetKeyedMutex({Ctx}) could not acquire at key=0 or key=1 (hr={Hr:X}); next AcquireSync may time out", contextName, hr);
         }
 
         /// <summary>

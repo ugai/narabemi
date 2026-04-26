@@ -86,26 +86,11 @@ namespace Narabemi.Gpu
             if (hA != IntPtr.Zero) _openedTexA = _deviceManager.OpenSharedTexture(hA, width, height);
             if (hB != IntPtr.Zero) _openedTexB = _deviceManager.OpenSharedTexture(hB, width, height);
 
-            // Some DXGI driver implementations implicitly acquire the keyed mutex on the opening
-            // device when OpenSharedResource is called. Release key=0 immediately so the creating
-            // device (renderer) can AcquireSync(0) in RenderFrame. Safe to call in a loop:
-            // ReleaseSync fails with DXGI_ERROR_INVALID_CALL when not held, which we ignore.
-            TryReleaseKeyedMutex(_openedTexA, 0, "openedA");
-            TryReleaseKeyedMutex(_openedTexB, 0, "openedB");
-        }
-
-        private void TryReleaseKeyedMutex(GpuTexture? tex, ulong key, string name)
-        {
-            if (tex?.KeyedMutex == null) return;
-            try
-            {
-                tex.KeyedMutex.ReleaseSync(key);
-                _logger.LogInformation("[FSM] ReleaseSync({Name},{Key}) OK — implicit open-lock released", name, key);
-            }
-            catch
-            {
-                _logger.LogDebug("[FSM] ReleaseSync({Name},{Key}) skipped — not held", name, key);
-            }
+            // Reset keyed mutex to key=0 on the BlendDevice-opened view.
+            // Handles: implicit acquire on OpenSharedResource, residual key=1 from crashed
+            // previous process, and WAIT_ABANDONED from unclean prior owner exit.
+            if (_openedTexA != null) _deviceManager.ResetKeyedMutex(_openedTexA, "openedA");
+            if (_openedTexB != null) _deviceManager.ResetKeyedMutex(_openedTexB, "openedB");
         }
 
         private void OnFrameRenderedA()
@@ -390,6 +375,11 @@ namespace Narabemi.Gpu
             if (_rendererA != null) _rendererA.FrameRendered -= OnFrameRenderedA;
             if (_rendererB != null) _rendererB.FrameRendered -= OnFrameRenderedB;
 
+            // Leave keyed mutex at key=0 so next process can AcquireSync(0) cleanly.
+            if (_openedTexA?.KeyedMutex is not null)
+                try { _openedTexA.KeyedMutex.ReleaseSync(0); } catch { /* not held — fine */ }
+            if (_openedTexB?.KeyedMutex is not null)
+                try { _openedTexB.KeyedMutex.ReleaseSync(0); } catch { /* not held — fine */ }
             _openedTexA?.Dispose();
             _openedTexB?.Dispose();
 
