@@ -207,8 +207,8 @@ namespace Narabemi.Mpv
             CheckError(MpvApi.SetOptionString(_ctx, "input-vo-keyboard", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "osc", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "osd-level", "0"));
-            // Software decoding — avoids d3d11va-copy GPU↔GPU overhead that serializes GL rendering.
-            // Switch back to "auto" if CPU decode becomes the bottleneck on higher-resolution content.
+            // Software decode: hwdec=auto (d3d11va-copy) raises GPU contention with Blend device
+            // in SW render API mode — Phase 2 Map p95 jumped 12→22ms, Present p95 51→59ms (worse).
             CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-fast", "yes"));
             CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-threads", "0"));
