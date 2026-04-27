@@ -207,15 +207,12 @@ namespace Narabemi.Mpv
             CheckError(MpvApi.SetOptionString(_ctx, "input-vo-keyboard", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "osc", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "osd-level", "0"));
-            // Software decode: hwdec=auto (d3d11va-copy) raises GPU contention with Blend device
-            // in SW render API mode — Phase 2 Map p95 jumped 12→22ms, Present p95 51→59ms (worse).
-            CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "no"));
+            // d3d11va-copy caused D3D11 GPU contention with Blend device (Map p95 12→22ms).
+            // dxva2-copy uses the D3D9 driver stack, avoiding that contention while
+            // keeping full HW decode quality (bit-exact output, no scaler degradation).
+            CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "dxva2-copy"));
             CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-fast", "yes"));
             CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-threads", "0"));
-            // sws-fast: use fast-bilinear SW scaler to reduce 1080p→720p scale time
-            // (source is 1920×1080; SW scale was p95=34ms, blocking 30fps cadence).
-            // Quality tradeoff acceptable for comparison view.
-            CheckError(MpvApi.SetOptionString(_ctx, "sws-fast", "yes"));
         }
 
         private void StartEventLoop()
