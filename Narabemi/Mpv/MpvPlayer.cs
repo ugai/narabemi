@@ -212,6 +212,10 @@ namespace Narabemi.Mpv
             CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "no"));
             CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-fast", "yes"));
             CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-threads", "0"));
+            // sws-fast: use fast-bilinear SW scaler to reduce 1080p→720p scale time
+            // (source is 1920×1080; SW scale was p95=34ms, blocking 30fps cadence).
+            // Quality tradeoff acceptable for comparison view.
+            CheckError(MpvApi.SetOptionString(_ctx, "sws-fast", "yes"));
         }
 
         private void StartEventLoop()
