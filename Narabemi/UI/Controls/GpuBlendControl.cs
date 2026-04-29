@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Narabemi.Gpu;
+using Narabemi.Testing;
 using Narabemi.ViewModels;
 
 namespace Narabemi.UI.Controls
@@ -208,6 +209,7 @@ namespace Narabemi.UI.Controls
                     intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
 
                 InvalidateVisual();
+                Interlocked.Increment(ref BenchCounters.Presents);
             }
             catch (Exception ex)
             {

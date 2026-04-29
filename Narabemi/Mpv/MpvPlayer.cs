@@ -17,6 +17,11 @@ namespace Narabemi.Mpv
         private volatile bool _disposed;
         private readonly ILogger _logger;
 
+        // Pre-allocated resources for RenderFrameSW — eliminates per-frame heap alloc + GCHandle.Alloc.
+        private IntPtr _swFormatStr = IntPtr.Zero;
+        private int[] _swSizeArr = Array.Empty<int>();
+        private GCHandle _swSizeHandle;
+
         // Observed property reply IDs
         private const ulong ReplyPosition = 1;
         private const ulong ReplyDuration = 2;
@@ -123,32 +128,28 @@ namespace Narabemi.Mpv
         {
             if (_renderCtx == IntPtr.Zero) return -1;
 
-            var sizeArr = new int[] { width, height };
+            // Lazy-init pre-allocated resources (width/height are fixed after first call).
+            if (_swFormatStr == IntPtr.Zero)
+            {
+                _swFormatStr = Marshal.StringToCoTaskMemAnsi("rgba");
+                _swSizeArr   = new int[] { width, height };
+                _swSizeHandle = GCHandle.Alloc(_swSizeArr, GCHandleType.Pinned);
+            }
+            _swSizeArr[0] = width;
+            _swSizeArr[1] = height;
+
             var stride = strideBytes;
-
-            var formatStr = Marshal.StringToCoTaskMemAnsi("rgba");
-            var sizeHandle = GCHandle.Alloc(sizeArr, GCHandleType.Pinned);
-            try
+            var paramArray = new MpvRenderParam[]
             {
-                var paramArray = new MpvRenderParam[]
-                {
-                    new(MpvRenderParamType.SwSize,    sizeHandle.AddrOfPinnedObject()),
-                    new(MpvRenderParamType.SwFormat,  formatStr),
-                    new(MpvRenderParamType.SwStride,  (IntPtr)(&stride)),
-                    new(MpvRenderParamType.SwPointer, bufferPtr),
-                    MpvRenderParam.Terminator,
-                };
+                new(MpvRenderParamType.SwSize,    _swSizeHandle.AddrOfPinnedObject()),
+                new(MpvRenderParamType.SwFormat,  _swFormatStr),
+                new(MpvRenderParamType.SwStride,  (IntPtr)(&stride)),
+                new(MpvRenderParamType.SwPointer, bufferPtr),
+                MpvRenderParam.Terminator,
+            };
 
-                int result;
-                fixed (MpvRenderParam* ptr = paramArray)
-                    result = MpvRenderApi.RenderContextRender(_renderCtx, (IntPtr)ptr);
-                return result;
-            }
-            finally
-            {
-                sizeHandle.Free();
-                Marshal.FreeCoTaskMem(formatStr);
-            }
+            fixed (MpvRenderParam* ptr = paramArray)
+                return MpvRenderApi.RenderContextRender(_renderCtx, (IntPtr)ptr);
         }
 
         /// <summary>
@@ -212,7 +213,9 @@ namespace Narabemi.Mpv
             // keeping full HW decode quality (bit-exact output, no scaler degradation).
             CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "dxva2-copy"));
             CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-fast", "yes"));
-            CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-threads", "0"));
+            // 2 renderers × auto = 16-24 threads total on a 4C/8T system — oversubscribed.
+            // 2 threads per renderer caps total decoder threads at 4, leaving headroom.
+            CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-threads", "2"));
         }
 
         private void StartEventLoop()
@@ -464,6 +467,10 @@ namespace Narabemi.Mpv
             }
 
             _eventThread?.Join(TimeSpan.FromSeconds(2));
+
+            if (_swFormatStr != IntPtr.Zero) { Marshal.FreeCoTaskMem(_swFormatStr); _swFormatStr = IntPtr.Zero; }
+            if (_swSizeHandle.IsAllocated) _swSizeHandle.Free();
+
             _logger.LogInformation("mpv disposed");
         }
     }

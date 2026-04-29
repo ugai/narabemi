@@ -170,9 +170,7 @@ namespace Narabemi.Gpu
                 _frameBuffer!, _copyTexture.Texture, 0u, (uint)(_width * 4), 0u);
             long tUpload = sw.ElapsedMilliseconds;
 
-            _deviceManager.Context.Flush();
-            long tFlush = sw.ElapsedMilliseconds;
-
+            // ReleaseSync(1) orders the write — no explicit Flush needed.
             _copyTexture.KeyedMutex.ReleaseSync(1);
             long tRel = sw.ElapsedMilliseconds;
 
@@ -183,9 +181,9 @@ namespace Narabemi.Gpu
 
             if (++_renderFrameCount % 5 == 0)
                 _logger.LogInformation(
-                    "[{Tag}#{N}] cbWait={W:F1}ms swRender={R}ms acqWait={A}ms upload={U}ms flush={F}ms | interval={I:F1}ms ({FPS:F1}fps)",
+                    "[{Tag}#{N}] cbWait={W:F1}ms swRender={R}ms acqWait={A}ms upload={U}ms | interval={I:F1}ms ({FPS:F1}fps)",
                     _tag, _renderFrameCount, callbackWaitMs, tRender, tAcq - tRender,
-                    tUpload - tAcq, tFlush - tUpload,
+                    tUpload - tAcq,
                     intervalMs, intervalMs > 0 ? 1000.0 / intervalMs : 0);
 
             FrameRendered?.Invoke();

@@ -34,6 +34,7 @@ namespace Narabemi.Testing
 
         public void Start()
         {
+            BenchCounters.Presents = 0;
             _syncManager.BlendFrameReady += OnFrameReady;
 
             var timer = new DispatcherTimer(
@@ -54,12 +55,14 @@ namespace Narabemi.Testing
             _syncManager.BlendFrameReady -= OnFrameReady;
 
             double elapsedSec = (Stopwatch.GetTimestamp() - _startTick) * 1.0 / Stopwatch.Frequency;
-            int frames = _frameCount;
-            double fps = frames / elapsedSec;
+            int blendFrames  = _frameCount;
+            int presents     = BenchCounters.Presents;
+            double blendFps  = blendFrames / elapsedSec;
+            double presentFps = presents / elapsedSec;
 
             _logger.LogInformation(
-                "[Bench] frames={F} elapsed={E:F1}s fps={FPS:F1}",
-                frames, elapsedSec, fps);
+                "[Bench] frames={F} presents={P} elapsed={E:F1}s blendFps={BF:F1} presentFps={PF:F1} drops={D}",
+                blendFrames, presents, elapsedSec, blendFps, presentFps, blendFrames - presents);
 
             if (Avalonia.Application.Current?.ApplicationLifetime
                     is IClassicDesktopStyleApplicationLifetime desktop)

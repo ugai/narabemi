@@ -332,21 +332,34 @@ namespace Narabemi.Gpu
                 return;
             }
 
-            // ── Phase 2: EndReadBack + BlendFrameReady on a new AboveNormal thread ─
+            // ── Phase 2: split-lock readback + BlendFrameReady on a new AboveNormal thread ─
+            // Map (GPU fence stall) inside ContextLock, memcpy outside to free the lock sooner.
             StartReadbackThread(() =>
             {
                 try
                 {
                     var swLock = Stopwatch.StartNew();
-                    long ph2LockWait;
+                    MappedSubresource mapped;
+                    long mapMs;
                     lock (_deviceManager.ContextLock)
                     {
-                        ph2LockWait = swLock.ElapsedMilliseconds;
-                        _blend.EndReadBack(stagingRef, out long mapMs, out long memcpyMs);
-                        _logger.LogInformation("[Blend#{N}] ph2 lockWait={L}ms map={M}ms memcpy={C}ms",
-                            blendN, ph2LockWait, mapMs, memcpyMs);
+                        long ph2LockWait = swLock.ElapsedMilliseconds;
+                        var swMap = Stopwatch.StartNew();
+                        mapped = _blend.BeginStagingRead(stagingRef);
+                        mapMs = swMap.ElapsedMilliseconds;
+                        _logger.LogInformation("[Blend#{N}] ph2 lockWait={L}ms map={M}ms",
+                            blendN, ph2LockWait, mapMs);
                     }
+
+                    var swCopy = Stopwatch.StartNew();
+                    _blend.CopyStagingToCpu(mapped);
+                    long memcpyMs = swCopy.ElapsedMilliseconds;
+                    _logger.LogInformation("[Blend#{N}] ph2 memcpy={C}ms", blendN, memcpyMs);
+
                     if (!_disposed) BlendFrameReady?.Invoke();
+
+                    lock (_deviceManager.ContextLock)
+                        _blend.EndStagingRead(stagingRef);
                 }
                 finally
                 {
