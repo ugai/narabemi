@@ -1,10 +1,11 @@
 // Vertical split blend — Compute Shader (CS 5.0)
-// Reads two B8G8R8A8 input textures via Load() — no sampler, no render pipeline.
-// Output is packed as BGRA uint32 (R32_Uint) for direct CPU readback.
+// Reads two R8G8B8A8 input textures via Load() — no sampler, no render pipeline.
+// Output is B8G8R8A8_UNorm; D3D11 UAV auto-swizzles RGBA write → BGRA memory,
+// matching WriteableBitmap.Bgra8888 byte layout for CPU readback.
 
-Texture2D<float4>  tex0   : register(t0);
-Texture2D<float4>  tex1   : register(t1);
-RWTexture2D<uint>  output : register(u0);
+Texture2D<float4>        tex0   : register(t0);
+Texture2D<float4>        tex1   : register(t1);
+RWTexture2D<unorm float4> output : register(u0);
 
 cbuffer BlendParams : register(b0)
 {
@@ -14,15 +15,6 @@ cbuffer BlendParams : register(b0)
     float borderWidth;
     float4 borderColor;
 };
-
-uint PackBGRA(float4 c)
-{
-    uint r = (uint)(saturate(c.x) * 255.0f + 0.5f);
-    uint g = (uint)(saturate(c.y) * 255.0f + 0.5f);
-    uint b = (uint)(saturate(c.z) * 255.0f + 0.5f);
-    uint a = (uint)(saturate(c.w) * 255.0f + 0.5f);
-    return b | (g << 8) | (r << 16) | (a << 24);
-}
 
 [numthreads(16, 16, 1)]
 void main(uint3 dtid : SV_DispatchThreadID)
@@ -44,5 +36,5 @@ void main(uint3 dtid : SV_DispatchThreadID)
     if (abs(fy - splitY) <= halfBorder)
         color = borderColor;
 
-    output[dtid.xy] = PackBGRA(color);
+    output[dtid.xy] = color;
 }

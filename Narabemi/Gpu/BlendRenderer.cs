@@ -13,7 +13,7 @@ namespace Narabemi.Gpu
     /// D3D11 Compute Shader pipeline for blending two video textures.
     /// Uses CS 5.0 with Texture2D.Load() — no vertex shader, no rasterizer,
     /// no pixel shader, no sampler. Avoids Dynamic-texture sampling driver issues.
-    /// Output is R32_Uint (packed BGRA) for direct staging readback.
+    /// Output is B8G8R8A8_UNorm for swap chain CopyResource and CPU readback.
     /// </summary>
     public sealed class BlendRenderer : IDisposable
     {
@@ -28,13 +28,13 @@ namespace Narabemi.Gpu
         // Constant buffer (BlendParams)
         private ID3D11Buffer? _constantBuffer;
 
-        // Output: R32_Uint texture + UAV (CS writes here)
+        // Output: B8G8R8A8_UNorm texture + UAV (CS writes here)
         private ID3D11Texture2D? _outputTex;
         private ID3D11UnorderedAccessView? _outputUav;
         private int _width;
         private int _height;
 
-        // Staging: double-buffered R32_Uint textures for async GPU→CPU readback.
+        // Staging: double-buffered B8G8R8A8_UNorm textures for async GPU→CPU readback.
         // BeginReadBack() copies output → _stagingBack, then swaps references.
         // EndReadBack(stagingRef) maps the returned reference — race-free because
         // the caller captures the reference before releasing ContextLock.
@@ -254,8 +254,9 @@ namespace Narabemi.Gpu
             _width  = width;
             _height = height;
 
-            // Output texture: R32_Uint (guaranteed UAV support on all D3D11 hardware)
-            // Packed as BGRA uint32 by the CS — matches WriteableBitmap Bgra8888 byte layout.
+            // Output texture: B8G8R8A8_UNorm for swap-chain CopyResource compatibility.
+            // CS writes RGBA; D3D11 UAV auto-swizzles to BGRA memory layout,
+            // matching WriteableBitmap Bgra8888 byte order for CPU readback.
             _outputTex?.Dispose();
             _outputUav?.Dispose();
             var outDesc = new Texture2DDescription
@@ -264,7 +265,7 @@ namespace Narabemi.Gpu
                 Height = (uint)height,
                 MipLevels = 1,
                 ArraySize = 1,
-                Format = Format.R32_UInt,
+                Format = Format.B8G8R8A8_UNorm,
                 SampleDescription = new SampleDescription(1, 0),
                 Usage = ResourceUsage.Default,
                 BindFlags = BindFlags.UnorderedAccess,
@@ -272,12 +273,12 @@ namespace Narabemi.Gpu
             _outputTex = device.CreateTexture2D(outDesc);
             _outputUav = device.CreateUnorderedAccessView(_outputTex, new UnorderedAccessViewDescription
             {
-                Format    = Format.R32_UInt,
+                Format    = Format.B8G8R8A8_UNorm,
                 ViewDimension = UnorderedAccessViewDimension.Texture2D,
                 Texture2D = new Texture2DUnorderedAccessView { MipSlice = 0 },
             });
 
-            // Staging textures for GPU → CPU readback (double-buffered, same R32_Uint format).
+            // Staging textures for GPU → CPU readback (double-buffered, same B8G8R8A8_UNorm format).
             // front (_stagingTex) is mapped by EndReadBack; back (_stagingTexBack) receives
             // CopyResource from BeginReadBack. References are swapped after each copy.
             _stagingTex?.Dispose();
@@ -288,7 +289,7 @@ namespace Narabemi.Gpu
                 Height = (uint)height,
                 MipLevels = 1,
                 ArraySize = 1,
-                Format = Format.R32_UInt,
+                Format = Format.B8G8R8A8_UNorm,
                 SampleDescription = new SampleDescription(1, 0),
                 Usage = ResourceUsage.Staging,
                 CPUAccessFlags = CpuAccessFlags.Read,
