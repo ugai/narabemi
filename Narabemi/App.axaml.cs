@@ -75,6 +75,8 @@ namespace Narabemi
                 mainWindow.Initialize(fadeManager);
                 if (snapshotArgs.IsSnapshotMode || snapshotArgs.IsBenchMode)
                     mainVm.IsSnapshotMode = true;
+                if (snapshotArgs.IsBenchMode)
+                    mainVm.IsBenchMode = true;
 
                 desktop.MainWindow = mainWindow;
 
@@ -92,8 +94,9 @@ namespace Narabemi
                 if (snapshotArgs.IsSnapshotMode)
                 {
                     var syncManager = Services.GetRequiredService<FrameSyncManager>();
+                    var blendRenderer = Services.GetRequiredService<BlendRenderer>();
                     var logger = Services.GetRequiredService<ILogger<SnapshotRunner>>();
-                    var runner = new SnapshotRunner(snapshotArgs, mainVm, syncManager, logger);
+                    var runner = new SnapshotRunner(snapshotArgs, mainVm, syncManager, blendRenderer, logger);
                     runner.Start(mainWindow);
                 }
                 else if (snapshotArgs.IsBenchMode)

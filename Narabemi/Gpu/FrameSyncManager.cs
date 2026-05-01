@@ -52,6 +52,10 @@ namespace Narabemi.Gpu
         // Set to 1 before BeginReadBack; reset to 0 after EndReadBack completes.
         private int _readbackPending;
 
+        // When false, Phase 2 (staging Map/memcpy) is skipped and BlendFrameReady fires
+        // immediately after Phase 1. Swap chain Present path; no CpuOutput update.
+        private volatile bool _cpuReadbackEnabled = true;
+
         // Timing instrumentation
         private int _blendFrameCount;
         private long _lastBlendTick;
@@ -113,6 +117,11 @@ namespace Narabemi.Gpu
         public void SetBlendParamsProvider(Action provider)
         {
             _blendParamsProvider = provider;
+        }
+
+        public void SetCpuReadbackEnabled(bool enabled)
+        {
+            _cpuReadbackEnabled = enabled;
         }
 
         /// <summary>
@@ -298,13 +307,16 @@ namespace Narabemi.Gpu
                 _blend.Render(effectiveSrvA, effectiveSrvB, _currentParams);
                 long t2 = sw.ElapsedMilliseconds;
 
-                bool doReadback = Interlocked.CompareExchange(ref _readbackPending, 1, 0) == 0;
-                if (doReadback)
-                    stagingRef = _blend.BeginReadBack();
-                else
+                if (_cpuReadbackEnabled)
                 {
-                    Interlocked.Increment(ref _readbackSkipped);
-                    _logger.LogWarning("[Blend#{N}] readback SKIPPED — Phase 2 still in flight", _blendFrameCount + 1);
+                    bool doReadback = Interlocked.CompareExchange(ref _readbackPending, 1, 0) == 0;
+                    if (doReadback)
+                        stagingRef = _blend.BeginReadBack();
+                    else
+                    {
+                        Interlocked.Increment(ref _readbackSkipped);
+                        _logger.LogWarning("[Blend#{N}] readback SKIPPED — Phase 2 still in flight", _blendFrameCount + 1);
+                    }
                 }
                 long t3 = sw.ElapsedMilliseconds;
 
@@ -325,6 +337,14 @@ namespace Narabemi.Gpu
             // Renderers may now write the next frame while Phase 2 readback runs.
             if (acqA) _openedTexA!.KeyedMutex!.ReleaseSync(0);
             if (acqB) _openedTexB!.KeyedMutex!.ReleaseSync(0);
+
+            // Swap chain mode: skip Phase 2 entirely, fire immediately after Phase 1.
+            if (!_cpuReadbackEnabled)
+            {
+                if (!_disposed) BlendFrameReady?.Invoke();
+                onPhase2Complete?.Invoke();
+                return;
+            }
 
             if (stagingRef is null)
             {

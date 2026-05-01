@@ -1,8 +1,12 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using Narabemi.Gpu;
@@ -21,6 +25,7 @@ namespace Narabemi.Testing
         private readonly SnapshotArgs _args;
         private readonly MainWindowViewModel _vm;
         private readonly FrameSyncManager _syncManager;
+        private readonly BlendRenderer _blendRenderer;
         private readonly ILogger<SnapshotRunner> _logger;
 
         private Window? _window;
@@ -37,11 +42,13 @@ namespace Narabemi.Testing
             SnapshotArgs args,
             MainWindowViewModel vm,
             FrameSyncManager syncManager,
+            BlendRenderer blendRenderer,
             ILogger<SnapshotRunner> logger)
         {
             _args = args;
             _vm = vm;
             _syncManager = syncManager;
+            _blendRenderer = blendRenderer;
             _logger = logger;
         }
 
@@ -117,29 +124,36 @@ namespace Narabemi.Testing
 
             try
             {
-                var handle = _window?.TryGetPlatformHandle();
-                if (handle is null)
+                var src = _blendRenderer.CpuOutput;
+                if (src is null)
                 {
-                    _logger.LogError("Failed to get platform window handle");
+                    _logger.LogError("CpuOutput is null — no frame was blended");
                     Shutdown(1);
                     return;
                 }
 
-                var bitmap = WindowCapture.CaptureWindow(handle.Handle);
-                if (bitmap is null)
-                {
-                    _logger.LogError("PrintWindow capture returned null");
-                    Shutdown(1);
-                    return;
-                }
+                var w = _blendRenderer.OutputWidth;
+                var h = _blendRenderer.OutputHeight;
 
                 var dir = Path.GetDirectoryName(Path.GetFullPath(_args.OutputPath));
                 if (!string.IsNullOrEmpty(dir))
                     Directory.CreateDirectory(dir);
 
+                var bitmap = new WriteableBitmap(
+                    new PixelSize(w, h),
+                    new Vector(96, 96),
+                    PixelFormat.Bgra8888,
+                    AlphaFormat.Premul);
+
+                lock (_blendRenderer.CpuOutputLock)
+                {
+                    using var fb = bitmap.Lock();
+                    Marshal.Copy(src, 0, fb.Address, src.Length);
+                }
+
                 bitmap.Save(_args.OutputPath);
                 _logger.LogInformation("Snapshot saved: {Path} ({W}x{H})",
-                    Path.GetFullPath(_args.OutputPath), bitmap.PixelSize.Width, bitmap.PixelSize.Height);
+                    Path.GetFullPath(_args.OutputPath), w, h);
 
                 Shutdown(0);
             }

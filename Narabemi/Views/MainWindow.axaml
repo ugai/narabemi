@@ -14,16 +14,9 @@
         DragDrop.AllowDrop="True">
 
     <Grid RowDefinitions="*,Auto">
-        <!-- GPU blend compositing surface (covers the full video area) -->
-        <controls:GpuBlendControl Grid.Row="0"
-                                  x:Name="BlendView" />
-
-        <!-- Drop indicator (over video area) -->
-        <Border Grid.Row="0"
-                x:Name="DropOverlay"
-                BorderBrush="#4488FF"
-                BorderThickness="0"
-                IsHitTestVisible="False" />
+        <!-- GPU blend compositing surface — DXGI swap chain directly on native HWND -->
+        <controls:GpuBlendSwapChainControl Grid.Row="0"
+                                           x:Name="BlendView" />
 
         <!-- Control panel -->
         <Border Grid.Row="1"

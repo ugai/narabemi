@@ -15,10 +15,12 @@ namespace Narabemi.Gpu
         private readonly ILogger<D3D11DeviceManager> _logger;
         private ID3D11Device? _device;
         private ID3D11DeviceContext? _context;
+        private IDXGIFactory2? _dxgiFactory;
         private bool _disposed;
 
         public ID3D11Device Device => _device ?? throw new InvalidOperationException("D3D11 device not initialized.");
         public ID3D11DeviceContext Context => _context ?? throw new InvalidOperationException("D3D11 context not initialized.");
+        public IDXGIFactory2? DxgiFactory => _dxgiFactory;
         public bool IsInitialized => _device != null;
 
         /// <summary>
@@ -57,6 +59,10 @@ namespace Narabemi.Gpu
                 throw new InvalidOperationException($"D3D11CreateDevice failed: {result}");
 
             _logger.LogInformation("D3D11 device created (FeatureLevel={Level})", _device.FeatureLevel);
+
+            using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
+            using var adapter = dxgiDevice.GetAdapter();
+            _dxgiFactory = adapter.GetParent<IDXGIFactory2>();
         }
 
         /// <summary>
@@ -209,6 +215,7 @@ namespace Narabemi.Gpu
         {
             if (_disposed) return;
             _disposed = true;
+            _dxgiFactory?.Dispose();
             _context?.Dispose();
             _device?.Dispose();
             _logger.LogInformation("D3D11 device disposed");

@@ -51,6 +51,7 @@ namespace Narabemi.Gpu
         public object CpuOutputLock => _cpuOutputLock;
         public int OutputWidth => _width;
         public int OutputHeight => _height;
+        public ID3D11Texture2D? OutputTex => _outputTex;
 
         public BlendRenderer(D3D11DeviceManager deviceManager, ILogger<BlendRenderer> logger)
         {

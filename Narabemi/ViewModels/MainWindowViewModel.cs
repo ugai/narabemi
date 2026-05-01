@@ -184,9 +184,15 @@ namespace Narabemi.ViewModels
 
         /// <summary>
         /// When true, suppresses appstates.json write on window close.
-        /// Set by App in snapshot mode to avoid overwriting user state.
+        /// Set by App in snapshot/bench mode to avoid overwriting user state.
         /// </summary>
         public bool IsSnapshotMode { get; set; }
+
+        /// <summary>
+        /// When true, benchmark mode is active — CPU readback should be disabled.
+        /// Set independently of IsSnapshotMode to allow distinguishing the two modes.
+        /// </summary>
+        public bool IsBenchMode { get; set; }
 
         public string BlendModeLabel => BlendMode == 0 ? "Horizontal" : "Vertical";
 
