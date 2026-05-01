@@ -35,7 +35,7 @@ namespace Narabemi.Gpu
 
         private volatile bool _disposed;
 
-        // Callback set by GpuBlendControl to supply current blend params from the ViewModel.
+        // Callback set by GpuBlendSwapChainControl to supply current blend params from the ViewModel.
         // Invoked inside ContextLock in RunGpuBlend, just before each CS dispatch.
         private volatile Action? _blendParamsProvider;
 
