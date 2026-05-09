@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using Avalonia;
@@ -52,9 +53,71 @@ namespace Narabemi.Views
             AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
             AddHandler(DragDrop.DropEvent, OnDrop);
 
+            DataContextChanged += OnDataContextChanged;
             Loaded += OnLoaded;
             Closing += OnClosing;
             KeyDown += OnKeyDown;
+
+            ApplyVideoLayout();
+        }
+
+        private void OnDataContextChanged(object? sender, System.EventArgs e)
+        {
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.PropertyChanged -= OnVmPropertyChanged;
+                vm.PropertyChanged += OnVmPropertyChanged;
+                ApplyVideoLayout();
+            }
+        }
+
+        private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MainWindowViewModel.BlendMode) ||
+                e.PropertyName == nameof(MainWindowViewModel.BlendRatio))
+            {
+                ApplyVideoLayout();
+            }
+        }
+
+        private void ApplyVideoLayout()
+        {
+            var grid = this.FindControl<Grid>("VideoGrid");
+            var a = this.FindControl<VideoPlayerControl>("PlayerAView");
+            var b = this.FindControl<VideoPlayerControl>("PlayerBView");
+            if (grid is null || a is null || b is null) return;
+
+            var ratio = 0.5;
+            var horizontal = true;
+            if (DataContext is MainWindowViewModel vm)
+            {
+                ratio = System.Math.Clamp(vm.BlendRatio, 0.0, 1.0);
+                horizontal = vm.BlendMode == 0;
+            }
+
+            // Avoid 0-star (collapsed) cells when ratio is at the extremes — keep a sliver
+            // so the underlying mpv HWND retains a positive size and continues rendering.
+            const double minStar = 0.0001;
+            var first  = System.Math.Max(ratio,         minStar);
+            var second = System.Math.Max(1.0 - ratio,   minStar);
+
+            grid.RowDefinitions.Clear();
+            grid.ColumnDefinitions.Clear();
+
+            if (horizontal)
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(first,  GridUnitType.Star)));
+                grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(second, GridUnitType.Star)));
+                Grid.SetRow(a, 0);    Grid.SetColumn(a, 0);
+                Grid.SetRow(b, 0);    Grid.SetColumn(b, 1);
+            }
+            else
+            {
+                grid.RowDefinitions.Add(new RowDefinition(new GridLength(first,  GridUnitType.Star)));
+                grid.RowDefinitions.Add(new RowDefinition(new GridLength(second, GridUnitType.Star)));
+                Grid.SetRow(a, 0);    Grid.SetColumn(a, 0);
+                Grid.SetRow(b, 1);    Grid.SetColumn(b, 0);
+            }
         }
 
         private void OnLoaded(object? sender, RoutedEventArgs e)

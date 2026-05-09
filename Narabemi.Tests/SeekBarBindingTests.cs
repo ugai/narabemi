@@ -19,7 +19,7 @@ namespace Narabemi.Tests
             var playerB = new VideoPlayerViewModel(mpvPlayerB, NullLogger<VideoPlayerViewModel>.Instance);
             var appStatesService = new AppStatesService(NullLogger<AppStatesService>.Instance);
             appStatesService.LoadFile();
-            var vm = new MainWindowViewModel(appStatesService, playerA, playerB, null, null, NullLogger<MainWindowViewModel>.Instance);
+            var vm = new MainWindowViewModel(appStatesService, playerA, playerB, NullLogger<MainWindowViewModel>.Instance);
             return (vm, playerA);
         }
 

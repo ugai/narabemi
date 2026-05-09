@@ -199,8 +199,10 @@ namespace Narabemi.Testing
 
         private void Shutdown(int code)
         {
-            // Don't Dispose() the player here — its event-loop thread races with mpv_terminate_destroy
-            // and triggers an AccessViolationException. Process exit reclaims everything cleanly.
+            foreach (var s in _slots)
+            {
+                try { s.Player?.Dispose(); } catch { /* best-effort */ }
+            }
             if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime d)
                 d.Shutdown(code);
         }

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Narabemi.Gpu;
 using Narabemi.Settings;
 
 namespace Narabemi.ViewModels
@@ -11,8 +10,6 @@ namespace Narabemi.ViewModels
     public partial class MainWindowViewModel : ViewModelBase, IAppStateTarget
     {
         private readonly AppStatesService _appStatesService;
-        private readonly BlendRenderer? _blendRenderer;
-        private readonly FrameSyncManager? _frameSyncManager;
         private readonly ILogger<MainWindowViewModel> _logger;
 
         [ObservableProperty]
@@ -90,13 +87,9 @@ namespace Narabemi.ViewModels
             AppStatesService appStatesService,
             [Microsoft.Extensions.DependencyInjection.FromKeyedServices("PlayerA")] VideoPlayerViewModel playerA,
             [Microsoft.Extensions.DependencyInjection.FromKeyedServices("PlayerB")] VideoPlayerViewModel playerB,
-            BlendRenderer? blendRenderer,
-            FrameSyncManager? frameSyncManager,
             ILogger<MainWindowViewModel> logger)
         {
             _appStatesService = appStatesService;
-            _blendRenderer = blendRenderer;
-            _frameSyncManager = frameSyncManager;
             _logger = logger;
             PlayerA = playerA;
             PlayerB = playerB;
@@ -196,15 +189,7 @@ namespace Narabemi.ViewModels
 
         public string BlendModeLabel => BlendMode == 0 ? "Horizontal" : "Vertical";
 
-        partial void OnBlendRatioChanged(double value) => _frameSyncManager?.ForceBlend();
-
-        partial void OnBlendBorderWidthChanged(double value) => _frameSyncManager?.ForceBlend();
-
-        partial void OnBlendModeChanged(int value)
-        {
-            OnPropertyChanged(nameof(BlendModeLabel));
-            _frameSyncManager?.ForceBlend();
-        }
+        partial void OnBlendModeChanged(int value) => OnPropertyChanged(nameof(BlendModeLabel));
 
         /// <summary>
         /// Seeks the primary player to <paramref name="seconds"/>.

@@ -14,9 +14,16 @@
         DragDrop.AllowDrop="True">
 
     <Grid RowDefinitions="*,Auto">
-        <!-- GPU blend compositing surface — DXGI swap chain directly on native HWND -->
-        <controls:GpuBlendSwapChainControl Grid.Row="0"
-                                           x:Name="BlendView" />
+        <!-- Dual-HWND native D3D11 video surface: each player owns a child HWND
+             that mpv renders into directly (vo=gpu, gpu-api=d3d11, hwdec=d3d11va).
+             VideoGrid's row/column definitions are reconfigured in code-behind from
+             BlendMode (0=Horizontal, 1=Vertical) and BlendRatio (0..1). -->
+        <Grid Grid.Row="0" x:Name="VideoGrid" Background="Black">
+            <controls:VideoPlayerControl x:Name="PlayerAView"
+                                         DataContext="{Binding PlayerA}" />
+            <controls:VideoPlayerControl x:Name="PlayerBView"
+                                         DataContext="{Binding PlayerB}" />
+        </Grid>
 
         <!-- Control panel -->
         <Border Grid.Row="1"
@@ -84,13 +91,6 @@
                     <Slider Minimum="0" Maximum="1"
                             Value="{Binding BlendRatio}"
                             Width="200"
-                            VerticalAlignment="Center" />
-                    <TextBlock Text="Border:"
-                               Foreground="#AAAAAA" FontSize="11"
-                               VerticalAlignment="Center" />
-                    <Slider Minimum="0" Maximum="20"
-                            Value="{Binding BlendBorderWidth}"
-                            Width="100"
                             VerticalAlignment="Center" />
                     <Button x:Name="BlendModeButton"
                             Content="{Binding BlendModeLabel}"
