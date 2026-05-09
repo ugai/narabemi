@@ -141,8 +141,17 @@ namespace Narabemi.Views
 
         private void OnSplitterPointerPressed(object? sender, PointerPressedEventArgs e)
         {
-            if (DataContext is not MainWindowViewModel) return;
+            if (DataContext is not MainWindowViewModel vm) return;
             if (sender is not Border splitter) return;
+
+            // Double-click resets to 50/50 — common direct-manipulation idiom for sliders.
+            if (e.ClickCount == 2)
+            {
+                vm.BlendRatio = 0.5;
+                e.Handled = true;
+                return;
+            }
+
             _splitterDragging = true;
             e.Pointer.Capture(splitter);
             UpdateRatioFromPointer(e);

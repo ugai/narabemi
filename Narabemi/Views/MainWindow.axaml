@@ -25,8 +25,14 @@
             <controls:VideoPlayerControl x:Name="PlayerAView"
                                          DataContext="{Binding PlayerA}" />
             <Border x:Name="VideoSplitter"
-                    Background="#80FFFFFF"
-                    BorderThickness="0" />
+                    Background="#66FFFFFF"
+                    BorderThickness="0">
+                <Border.Styles>
+                    <Style Selector="Border#VideoSplitter:pointerover">
+                        <Setter Property="Background" Value="#E6FFFFFF" />
+                    </Style>
+                </Border.Styles>
+            </Border>
             <controls:VideoPlayerControl x:Name="PlayerBView"
                                          DataContext="{Binding PlayerB}" />
         </Grid>
