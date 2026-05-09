@@ -63,6 +63,45 @@ namespace Narabemi.Mpv
         }
 
         /// <summary>
+        /// Initializes mpv with native D3D11 video output and full HW decoding (no CPU roundtrip).
+        /// Used by the probe / new dual-HWND architecture.
+        /// </summary>
+        public void InitNativeD3D11(long windowId)
+        {
+            _ctx = MpvApi.Create();
+            if (_ctx == IntPtr.Zero)
+                throw new InvalidOperationException("mpv_create failed");
+
+            CheckError(MpvApi.SetOptionString(_ctx, "wid", windowId.ToString()));
+            CheckError(MpvApi.SetOptionString(_ctx, "vo", "gpu"));
+            CheckError(MpvApi.SetOptionString(_ctx, "gpu-api", "d3d11"));
+
+            CheckError(MpvApi.SetOptionString(_ctx, "keep-open", "yes"));
+            CheckError(MpvApi.SetOptionString(_ctx, "keep-open-pause", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "idle", "yes"));
+            CheckError(MpvApi.SetOptionString(_ctx, "input-default-bindings", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "input-vo-keyboard", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "osc", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "osd-level", "0"));
+
+            // True HW decode: GPU-decoded frames stay on the GPU as D3D11 textures,
+            // no CPU readback (unlike dxva2-copy which forces sysmem roundtrip).
+            CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "d3d11va"));
+            CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-fast", "yes"));
+
+            CheckError(MpvApi.Initialize(_ctx));
+            StartEventLoop();
+            _logger.LogInformation("mpv initialized (native d3d11, wid={WindowId})", windowId);
+        }
+
+        /// <summary>Returns the value of an mpv property as a string, or null if unavailable.</summary>
+        public string? GetPropertyStr(string name)
+        {
+            EnsureInit();
+            return MpvApi.GetPropertyStringManaged(_ctx, name);
+        }
+
+        /// <summary>
         /// Initializes mpv for use with the render API (no native window).
         /// Call CreateRenderContext() after this to set up OpenGL rendering.
         /// </summary>

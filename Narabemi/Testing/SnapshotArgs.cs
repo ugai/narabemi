@@ -10,7 +10,9 @@ namespace Narabemi.Testing
     {
         public bool IsSnapshotMode { get; init; }
         public bool IsBenchMode { get; init; }
+        public bool IsProbeNativeMode { get; init; }
         public double BenchSeconds { get; init; } = 10.0;
+        public double ProbeSeconds { get; init; } = 10.0;
         public string? VideoPathA { get; init; }
         public string? VideoPathB { get; init; }
         public double SeekSeconds { get; init; } = 5.0;
@@ -21,9 +23,9 @@ namespace Narabemi.Testing
             if (args is null || args.Length == 0)
                 return new SnapshotArgs();
 
-            bool snapshot = false, bench = false;
+            bool snapshot = false, bench = false, probeNative = false;
             string? videoA = null, videoB = null;
-            double seek = 5.0, benchSeconds = 10.0;
+            double seek = 5.0, benchSeconds = 10.0, probeSeconds = 10.0;
             string output = "snapshot.png";
 
             for (int i = 0; i < args.Length; i++)
@@ -46,6 +48,10 @@ namespace Narabemi.Testing
                         bench = true;
                         double.TryParse(args[++i], CultureInfo.InvariantCulture, out benchSeconds);
                         break;
+                    case "--probe-native" when i + 1 < args.Length:
+                        probeNative = true;
+                        double.TryParse(args[++i], CultureInfo.InvariantCulture, out probeSeconds);
+                        break;
                     case "-o" or "--output" when i + 1 < args.Length:
                         output = args[++i];
                         break;
@@ -56,7 +62,9 @@ namespace Narabemi.Testing
             {
                 IsSnapshotMode = snapshot,
                 IsBenchMode = bench,
+                IsProbeNativeMode = probeNative,
                 BenchSeconds = benchSeconds,
+                ProbeSeconds = probeSeconds,
                 VideoPathA = videoA,
                 VideoPathB = videoB,
                 SeekSeconds = seek,

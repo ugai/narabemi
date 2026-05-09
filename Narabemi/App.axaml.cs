@@ -51,6 +51,14 @@ namespace Narabemi
                 _host = CreateHostBuilder().Build();
                 Services = _host.Services;
 
+                if (snapshotArgs.IsProbeNativeMode)
+                {
+                    var probeLogger = Services.GetRequiredService<ILogger<ProbeRunner>>();
+                    new ProbeRunner(snapshotArgs, probeLogger).Start();
+                    base.OnFrameworkInitializationCompleted();
+                    return;
+                }
+
                 var appStatesService = Services.GetRequiredService<AppStatesService>();
                 appStatesService.LoadFile();
 
