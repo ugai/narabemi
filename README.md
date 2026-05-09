@@ -9,25 +9,18 @@ Quick side-by-side video comparison tool.
 
 *© Blender Foundation | [cloud.blender.org/spring](http://cloud.blender.org/spring), [studio.blender.org/films/big-buck-bunny](https://studio.blender.org/films/big-buck-bunny)*
 
-### Custom Blend Shader
-
-![screenshot custom blend shader](screenshots/ss_custom_shader.jpg?raw=true)
-
-```hlsl
-float4 main(float2 uv : TEXCOORD) : COLOR
-{
-    float4 color0 = tex2D(input0, uv);
-    float4 color1 = tex2D(input1, uv);
-    float4 color = lerp(color0, color1, step(ratio, uv.x) * saturate(step(uv.y % 0.2, 0.1))); // stripe blend
-    return lerp(color, borderColor,
-        step(uv.x - (borderWidth / widthPx / 2.0f), ratio) *
-        step(ratio, uv.x + borderWidth / widthPx / 2.0f));
-}
-```
-
 ### Comparing Subtitles
 
 ![screenshot subtitles](screenshots/ss_subs.jpg?raw=true)
+
+## Versions
+
+This repository contains two versions:
+
+- **`Narabemi/`** — Active version. Avalonia 11 + libmpv on .NET 10. Native dual-HWND D3D11 playback (each video rendered directly by mpv into its own child window).
+- **`Narabemi.Wpf/`** — Legacy WPF + FFME on .NET 6. Preserved for reference; supported a custom HLSL blend shader (see git history).
+
+The instructions below are for the active **Avalonia** version. For the legacy version, see [`Narabemi.Wpf/`](Narabemi.Wpf/).
 
 ## Installation
 
@@ -35,38 +28,58 @@ float4 main(float2 uv : TEXCOORD) : COLOR
 
 - [Releases](https://github.com/ugai/narabemi/releases)
 
-### Set FFmpeg path
+### libmpv
 
-1. [Download](https://ffmpeg.org/download.html) the FFmpeg 4.4 binary and put it somewhere.
-2. Edit the `appsettings.json` file to set the path to FFmpeg's `bin` directory.
-
-Or just run the `download_ffmpeg.bat` file.
+`libmpv-2.dll` must be present in `Narabemi/lib/`. Download a Windows build from [mpv.io/installation](https://mpv.io/installation/) (the `mpv-dev` archive) and copy `libmpv-2.dll` into `Narabemi/lib/`.
 
 ## Building from source
 
 ### Prerequisites
 
-- [.NET 6.0 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/6.0) — required to build and run the application
-- **FXC shader compiler** — required for the PreBuild step that compiles HLSL pixel shaders to `.fxc` bytecode
-  - Included with the [Windows SDK](https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/) (install the "Windows SDK for Desktop C++ x86 Apps" or "Windows SDK for Desktop C++ amd64 Apps" component)
-  - Alternatively available via the [Microsoft.Windows.SDK.CPP NuGet package](https://www.nuget.org/packages/Microsoft.Windows.SDK.CPP)
+- [.NET 10 SDK](https://dotnet.microsoft.com/)
+- `libmpv-2.dll` placed at `Narabemi/lib/libmpv-2.dll`
 
 ### Steps
 
 ```bash
-# 1. Download FFmpeg binaries (places them at ./ffmpeg/bin by default)
-./download_ffmpeg.bat
-
-# 2. Build
 dotnet build Narabemi/Narabemi.csproj
+dotnet run   --project Narabemi/Narabemi.csproj
+```
 
-# 3. Run
-dotnet run --project Narabemi/Narabemi.csproj
+To run the test suite:
+
+```bash
+dotnet test Narabemi.Tests/Narabemi.Tests.csproj
+```
+
+## Usage
+
+- **Open files**: drag-and-drop two video files onto the window, or use `Ctrl+O` / `Ctrl+Shift+O` to open files for player A / B individually.
+- **Drag the splitter**: the thin line between the two video panes is draggable — grab it to change the split ratio in real time.
+- **Keyboard shortcuts**: `Space` play/pause, `Esc` stop, `←` / `→` seek ±5 s (`Shift+` for ±30 s).
+- **Split direction**: toggle between Horizontal (side-by-side) and Vertical (stacked) via the `Horizontal/Vertical` button in the control panel.
+- **Sync** seeks both players together when enabled. **Loop** loops the current videos.
+
+## Test / benchmark modes
+
+```bash
+# Headless fps benchmark of the real pipeline (15 s, dual player)
+dotnet run --project Narabemi/Narabemi.csproj -- --bench 15 \
+    --video-a A.mp4 --video-b B.mp4
+
+# Snapshot at 5 s into each video (raw mpv frame, no OSD)
+dotnet run --project Narabemi/Narabemi.csproj -- --snapshot --seek 5 \
+    --video-a A.mp4 --video-b B.mp4 -o snapshot.png
+
+# Architectural probe (skips the main UI, useful for raw rendering experiments)
+dotnet run --project Narabemi/Narabemi.csproj -- --probe-native 15 \
+    --video-a A.mp4 [--video-b B.mp4]
 ```
 
 ## Limitations
 
-- Video playback synchronization is not frame-accurate, not perfect.
+- Two players are not frame-locked; each runs at its own present cadence.
+- Video playback synchronization is not frame-accurate.
 
 ## Alternatives
 
