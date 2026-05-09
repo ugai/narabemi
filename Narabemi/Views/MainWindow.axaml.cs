@@ -89,6 +89,8 @@ namespace Narabemi.Views
         }
 
         private const double SplitterPx = 6.0;
+        private bool _layoutHorizontal = true;
+        private bool _layoutInitialized;
 
         private void ApplyVideoLayout()
         {
@@ -112,6 +114,26 @@ namespace Narabemi.Views
             var first  = System.Math.Max(ratio,         minStar);
             var second = System.Math.Max(1.0 - ratio,   minStar);
 
+            // Fast path: if the orientation hasn't changed, just update the existing
+            // star widths in-place. Splitter drag fires PointerMoved at high frequency,
+            // and Clear/Add of definitions causes Avalonia to re-create the cells each
+            // time — measurable jank during a fast drag.
+            if (_layoutInitialized && _layoutHorizontal == horizontal)
+            {
+                if (horizontal)
+                {
+                    grid.ColumnDefinitions[0].Width = new GridLength(first,  GridUnitType.Star);
+                    grid.ColumnDefinitions[2].Width = new GridLength(second, GridUnitType.Star);
+                }
+                else
+                {
+                    grid.RowDefinitions[0].Height = new GridLength(first,  GridUnitType.Star);
+                    grid.RowDefinitions[2].Height = new GridLength(second, GridUnitType.Star);
+                }
+                return;
+            }
+
+            // Slow path: orientation changed (or first build) — full rebuild.
             grid.RowDefinitions.Clear();
             grid.ColumnDefinitions.Clear();
 
@@ -135,6 +157,9 @@ namespace Narabemi.Views
                 Grid.SetRow(b, 2);        Grid.SetColumn(b, 0);
                 splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeNorthSouth);
             }
+
+            _layoutHorizontal = horizontal;
+            _layoutInitialized = true;
         }
 
         private bool _splitterDragging;

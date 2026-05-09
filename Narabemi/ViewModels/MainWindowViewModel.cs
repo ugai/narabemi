@@ -182,8 +182,8 @@ namespace Narabemi.ViewModels
         public bool IsSnapshotMode { get; set; }
 
         /// <summary>
-        /// When true, benchmark mode is active — CPU readback should be disabled.
-        /// Set independently of IsSnapshotMode to allow distinguishing the two modes.
+        /// When true, benchmark mode is active. Tracked independently of IsSnapshotMode
+        /// so the two test runners can be distinguished if they ever need to behave differently.
         /// </summary>
         public bool IsBenchMode { get; set; }
 
