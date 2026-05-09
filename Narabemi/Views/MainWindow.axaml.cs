@@ -58,6 +58,14 @@ namespace Narabemi.Views
             Closing += OnClosing;
             KeyDown += OnKeyDown;
 
+            var splitter = this.FindControl<Border>("VideoSplitter");
+            if (splitter is not null)
+            {
+                splitter.PointerPressed  += OnSplitterPointerPressed;
+                splitter.PointerMoved    += OnSplitterPointerMoved;
+                splitter.PointerReleased += OnSplitterPointerReleased;
+            }
+
             ApplyVideoLayout();
         }
 
@@ -80,12 +88,15 @@ namespace Narabemi.Views
             }
         }
 
+        private const double SplitterPx = 6.0;
+
         private void ApplyVideoLayout()
         {
-            var grid = this.FindControl<Grid>("VideoGrid");
-            var a = this.FindControl<VideoPlayerControl>("PlayerAView");
-            var b = this.FindControl<VideoPlayerControl>("PlayerBView");
-            if (grid is null || a is null || b is null) return;
+            var grid     = this.FindControl<Grid>("VideoGrid");
+            var a        = this.FindControl<VideoPlayerControl>("PlayerAView");
+            var b        = this.FindControl<VideoPlayerControl>("PlayerBView");
+            var splitter = this.FindControl<Border>("VideoSplitter");
+            if (grid is null || a is null || b is null || splitter is null) return;
 
             var ratio = 0.5;
             var horizontal = true;
@@ -107,17 +118,67 @@ namespace Narabemi.Views
             if (horizontal)
             {
                 grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(first,  GridUnitType.Star)));
+                grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(SplitterPx, GridUnitType.Pixel)));
                 grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(second, GridUnitType.Star)));
-                Grid.SetRow(a, 0);    Grid.SetColumn(a, 0);
-                Grid.SetRow(b, 0);    Grid.SetColumn(b, 1);
+                Grid.SetRow(a, 0);        Grid.SetColumn(a, 0);
+                Grid.SetRow(splitter, 0); Grid.SetColumn(splitter, 1);
+                Grid.SetRow(b, 0);        Grid.SetColumn(b, 2);
+                splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast);
             }
             else
             {
                 grid.RowDefinitions.Add(new RowDefinition(new GridLength(first,  GridUnitType.Star)));
+                grid.RowDefinitions.Add(new RowDefinition(new GridLength(SplitterPx, GridUnitType.Pixel)));
                 grid.RowDefinitions.Add(new RowDefinition(new GridLength(second, GridUnitType.Star)));
-                Grid.SetRow(a, 0);    Grid.SetColumn(a, 0);
-                Grid.SetRow(b, 1);    Grid.SetColumn(b, 0);
+                Grid.SetRow(a, 0);        Grid.SetColumn(a, 0);
+                Grid.SetRow(splitter, 1); Grid.SetColumn(splitter, 0);
+                Grid.SetRow(b, 2);        Grid.SetColumn(b, 0);
+                splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeNorthSouth);
             }
+        }
+
+        private bool _splitterDragging;
+
+        private void OnSplitterPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (DataContext is not MainWindowViewModel) return;
+            if (sender is not Border splitter) return;
+            _splitterDragging = true;
+            e.Pointer.Capture(splitter);
+            UpdateRatioFromPointer(e);
+            e.Handled = true;
+        }
+
+        private void OnSplitterPointerMoved(object? sender, PointerEventArgs e)
+        {
+            if (!_splitterDragging) return;
+            UpdateRatioFromPointer(e);
+        }
+
+        private void OnSplitterPointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            if (!_splitterDragging) return;
+            _splitterDragging = false;
+            e.Pointer.Capture(null);
+            e.Handled = true;
+        }
+
+        private void UpdateRatioFromPointer(PointerEventArgs e)
+        {
+            if (DataContext is not MainWindowViewModel vm) return;
+            var grid = this.FindControl<Grid>("VideoGrid");
+            if (grid is null) return;
+
+            var p = e.GetPosition(grid);
+            var horizontal = vm.BlendMode == 0;
+            var size = horizontal ? grid.Bounds.Width : grid.Bounds.Height;
+            if (size <= 0) return;
+            var coord = horizontal ? p.X : p.Y;
+
+            // Clamp away from the very edges so the user can always grab the splitter back.
+            const double minRatio = 0.02;
+            const double maxRatio = 0.98;
+            vm.BlendRatio = System.Math.Clamp(coord / size, minRatio, maxRatio);
         }
 
         private void OnLoaded(object? sender, RoutedEventArgs e)

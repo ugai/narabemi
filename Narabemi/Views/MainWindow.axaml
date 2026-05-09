@@ -17,10 +17,16 @@
         <!-- Dual-HWND native D3D11 video surface: each player owns a child HWND
              that mpv renders into directly (vo=gpu, gpu-api=d3d11, hwdec=d3d11va).
              VideoGrid's row/column definitions are reconfigured in code-behind from
-             BlendMode (0=Horizontal, 1=Vertical) and BlendRatio (0..1). -->
+             BlendMode (0=Horizontal, 1=Vertical) and BlendRatio (0..1).
+             VideoSplitter sits in a sibling cell between the two players — drag it
+             to update BlendRatio. As an Avalonia control in a non-overlapping cell,
+             it does not trigger NativeControlHost airspace clipping. -->
         <Grid Grid.Row="0" x:Name="VideoGrid" Background="Black">
             <controls:VideoPlayerControl x:Name="PlayerAView"
                                          DataContext="{Binding PlayerA}" />
+            <Border x:Name="VideoSplitter"
+                    Background="#80FFFFFF"
+                    BorderThickness="0" />
             <controls:VideoPlayerControl x:Name="PlayerBView"
                                          DataContext="{Binding PlayerB}" />
         </Grid>
