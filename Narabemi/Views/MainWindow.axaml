@@ -35,15 +35,21 @@
                   VerticalAlignment="Center">
                 <controls:VideoPlayerControl x:Name="PlayerAView"
                                              DataContext="{Binding PlayerA}" />
-                <Border x:Name="VideoSplitter"
-                        Background="#66FFFFFF"
-                        BorderThickness="0">
-                    <Border.Styles>
-                        <Style Selector="Border#VideoSplitter:pointerover">
+                <!-- 6px transparent hit zone wraps a 1px visible line — the line is a
+                     separate Border inside so the hit area is forgiving while the line
+                     itself stays minimal. Orientation (1px wide vs 1px tall) is set in
+                     code-behind from BlendMode. -->
+                <Panel x:Name="VideoSplitter" Background="Transparent">
+                    <Panel.Styles>
+                        <Style Selector="Panel#VideoSplitter:pointerover /template/ Border#SplitterLine">
                             <Setter Property="Background" Value="#E6FFFFFF" />
                         </Style>
-                    </Border.Styles>
-                </Border>
+                        <Style Selector="Panel#VideoSplitter:pointerover Border#SplitterLine">
+                            <Setter Property="Background" Value="#E6FFFFFF" />
+                        </Style>
+                    </Panel.Styles>
+                    <Border x:Name="SplitterLine" Background="#66FFFFFF" />
+                </Panel>
                 <controls:VideoPlayerControl x:Name="PlayerBView"
                                              DataContext="{Binding PlayerB}" />
             </Grid>
