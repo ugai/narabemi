@@ -31,7 +31,10 @@ namespace Narabemi.Testing
         private int _filesLoaded;
         private DispatcherTimer? _timeout;
 
-        private const int PostSeekDelayMs = 800;
+        // 1500ms (was 800) — gives mpv's filter chain enough time to settle the seek
+        // and apply video-crop. Empirically the very first run after launch can be
+        // flaky at <1s if the crop set raced with the decoder warmup.
+        private const int PostSeekDelayMs = 1500;
         private const int TimeoutSeconds  = 30;
 
         public SnapshotRunner(
@@ -44,8 +47,11 @@ namespace Narabemi.Testing
             _logger = logger;
         }
 
-        public void Start(Window _window)
+        private Window? _window;
+
+        public void Start(Window window)
         {
+            _window = window;
             // Listen for file-loaded events on both players to know when we can seek.
             _vm.PlayerA.MpvPlayer.FileLoaded += OnFileLoaded;
             if (HasPlayerB)
@@ -95,8 +101,26 @@ namespace Narabemi.Testing
             _state = State.Capturing;
             try
             {
-                CaptureAll();
-                Shutdown(0);
+                // Defensive re-apply of crops right before capture. Without this, the
+                // very first snapshot after launch occasionally captures a pre-crop
+                // frame even with a 1.5s settle delay — likely a race with mpv's first
+                // VideoReconfig event.
+                _vm.UpdateCrops();
+
+                // Give mpv one more frame interval to render the (re-)cropped output.
+                DispatcherTimer.RunOnce(() =>
+                {
+                    try
+                    {
+                        CaptureAll();
+                        Shutdown(0);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Snapshot capture failed");
+                        Shutdown(1);
+                    }
+                }, TimeSpan.FromMilliseconds(150));
             }
             catch (Exception ex)
             {
@@ -111,19 +135,44 @@ namespace Narabemi.Testing
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
+            var dirOut   = Path.GetDirectoryName(Path.GetFullPath(_args.OutputPath)) ?? string.Empty;
+            var baseName = Path.GetFileNameWithoutExtension(_args.OutputPath);
+            var ext      = Path.GetExtension(_args.OutputPath);
+
             if (HasPlayerB)
             {
-                var dirOut  = Path.GetDirectoryName(Path.GetFullPath(_args.OutputPath)) ?? string.Empty;
-                var baseName = Path.GetFileNameWithoutExtension(_args.OutputPath);
-                var ext      = Path.GetExtension(_args.OutputPath);
-                var pathA    = Path.Combine(dirOut, $"{baseName}_a{ext}");
-                var pathB    = Path.Combine(dirOut, $"{baseName}_b{ext}");
+                var pathA = Path.Combine(dirOut, $"{baseName}_a{ext}");
+                var pathB = Path.Combine(dirOut, $"{baseName}_b{ext}");
                 Capture(_vm.PlayerA.MpvPlayer, pathA);
                 Capture(_vm.PlayerB.MpvPlayer, pathB);
             }
             else
             {
                 Capture(_vm.PlayerA.MpvPlayer, Path.GetFullPath(_args.OutputPath));
+            }
+
+            // Always also save the rendered window. This is the actual visual output
+            // (per-player screenshots only show mpv's decoded frame, not the layout).
+            // The window PNG is what verifies wipe-seam alignment in the displayed UI.
+            CaptureWindow(Path.Combine(dirOut, $"{baseName}_window{ext}"));
+        }
+
+        private void CaptureWindow(string path)
+        {
+            if (_window is null) return;
+            var hwnd = _window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (hwnd == IntPtr.Zero) { _logger.LogWarning("Window HWND not available for capture"); return; }
+
+            try
+            {
+                var bmp = WindowCapture.CaptureWindow(hwnd);
+                if (bmp is null) { _logger.LogWarning("WindowCapture returned null for {Path}", path); return; }
+                bmp.Save(path);
+                _logger.LogInformation("Window snapshot saved: {Path}", path);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Window capture failed for {Path}", path);
             }
         }
 

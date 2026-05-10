@@ -18,6 +18,12 @@ namespace Narabemi.Testing
         public double SeekSeconds { get; init; } = 5.0;
         public string OutputPath { get; init; } = "snapshot.png";
 
+        /// <summary>If non-null, overrides BlendRatio (0..1) before snapshot/bench runs.</summary>
+        public double? SetRatio { get; init; }
+
+        /// <summary>If non-null, overrides BlendMode: 0=Horizontal, 1=Vertical.</summary>
+        public int? SetMode { get; init; }
+
         public static SnapshotArgs Parse(string[]? args)
         {
             if (args is null || args.Length == 0)
@@ -27,6 +33,8 @@ namespace Narabemi.Testing
             string? videoA = null, videoB = null;
             double seek = 5.0, benchSeconds = 10.0, probeSeconds = 10.0;
             string output = "snapshot.png";
+            double? setRatio = null;
+            int? setMode = null;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -52,6 +60,19 @@ namespace Narabemi.Testing
                         probeNative = true;
                         double.TryParse(args[++i], CultureInfo.InvariantCulture, out probeSeconds);
                         break;
+                    case "--set-ratio" when i + 1 < args.Length:
+                        if (double.TryParse(args[++i], CultureInfo.InvariantCulture, out var r))
+                            setRatio = r;
+                        break;
+                    case "--set-mode" when i + 1 < args.Length:
+                        var mode = args[++i].ToLowerInvariant();
+                        setMode = mode switch
+                        {
+                            "horizontal" or "h" or "0" => 0,
+                            "vertical"   or "v" or "1" => 1,
+                            _ => (int?)null,
+                        };
+                        break;
                     case "-o" or "--output" when i + 1 < args.Length:
                         output = args[++i];
                         break;
@@ -69,6 +90,8 @@ namespace Narabemi.Testing
                 VideoPathB = videoB,
                 SeekSeconds = seek,
                 OutputPath = output,
+                SetRatio = setRatio,
+                SetMode = setMode,
             };
         }
     }

@@ -85,6 +85,20 @@ namespace Narabemi
                 if (snapshotArgs.IsBenchMode)
                     mainVm.IsBenchMode = true;
 
+                // CLI overrides for layout — applied AFTER appstates restore so they win.
+                // The state restore happens via vm.LoadedCommand which fires on Window.Loaded;
+                // hook to re-apply overrides right after that.
+                if (snapshotArgs.SetRatio.HasValue || snapshotArgs.SetMode.HasValue)
+                {
+                    void ApplyOverrides(object? _, Avalonia.Interactivity.RoutedEventArgs __)
+                    {
+                        if (snapshotArgs.SetMode.HasValue)  mainVm.BlendMode  = snapshotArgs.SetMode.Value;
+                        if (snapshotArgs.SetRatio.HasValue) mainVm.BlendRatio = snapshotArgs.SetRatio.Value;
+                        mainWindow.Loaded -= ApplyOverrides;
+                    }
+                    mainWindow.Loaded += ApplyOverrides;
+                }
+
                 desktop.MainWindow = mainWindow;
 
                 // Don't save appstates on exit in snapshot/bench mode (avoids overwriting user state)

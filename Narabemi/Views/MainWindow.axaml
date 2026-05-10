@@ -16,25 +16,37 @@
     <Grid RowDefinitions="*,Auto">
         <!-- Dual-HWND native D3D11 video surface: each player owns a child HWND
              that mpv renders into directly (vo=gpu, gpu-api=d3d11, hwdec=d3d11va).
-             VideoGrid's row/column definitions are reconfigured in code-behind from
-             BlendMode (0=Horizontal, 1=Vertical) and BlendRatio (0..1).
+
+             Two-level layout for wipe-seam alignment:
+              - VideoGrid is the full video area (black background fills any margin).
+              - InnerVideoGrid is sized to the displayed-source aspect (computed from
+                Player A's source dims) and centered inside VideoGrid. Its Row/Column
+                definitions are reconfigured in code-behind from BlendMode (0=Horizontal,
+                1=Vertical) and BlendRatio (0..1).
+              - Each cell exactly matches its cropped region's aspect, so mpv does not
+                letterbox internally → A's right edge meets B's left edge at the seam.
+
              VideoSplitter sits in a sibling cell between the two players — drag it
-             to update BlendRatio. As an Avalonia control in a non-overlapping cell,
-             it does not trigger NativeControlHost airspace clipping. -->
+             to update BlendRatio. Sibling-cell placement avoids NativeControlHost
+             airspace clipping. -->
         <Grid Grid.Row="0" x:Name="VideoGrid" Background="Black">
-            <controls:VideoPlayerControl x:Name="PlayerAView"
-                                         DataContext="{Binding PlayerA}" />
-            <Border x:Name="VideoSplitter"
-                    Background="#66FFFFFF"
-                    BorderThickness="0">
-                <Border.Styles>
-                    <Style Selector="Border#VideoSplitter:pointerover">
-                        <Setter Property="Background" Value="#E6FFFFFF" />
-                    </Style>
-                </Border.Styles>
-            </Border>
-            <controls:VideoPlayerControl x:Name="PlayerBView"
-                                         DataContext="{Binding PlayerB}" />
+            <Grid x:Name="InnerVideoGrid"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center">
+                <controls:VideoPlayerControl x:Name="PlayerAView"
+                                             DataContext="{Binding PlayerA}" />
+                <Border x:Name="VideoSplitter"
+                        Background="#66FFFFFF"
+                        BorderThickness="0">
+                    <Border.Styles>
+                        <Style Selector="Border#VideoSplitter:pointerover">
+                            <Setter Property="Background" Value="#E6FFFFFF" />
+                        </Style>
+                    </Border.Styles>
+                </Border>
+                <controls:VideoPlayerControl x:Name="PlayerBView"
+                                             DataContext="{Binding PlayerB}" />
+            </Grid>
         </Grid>
 
         <!-- Control panel -->

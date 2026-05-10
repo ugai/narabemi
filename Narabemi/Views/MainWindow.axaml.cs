@@ -66,6 +66,16 @@ namespace Narabemi.Views
                 splitter.PointerReleased += OnSplitterPointerReleased;
             }
 
+            // Window/video-area resize must re-fit the aspect-locked inner grid.
+            var videoGrid = this.FindControl<Grid>("VideoGrid");
+            if (videoGrid is not null)
+                videoGrid.SizeChanged += (_, _) => ApplyVideoLayout();
+
+            // DataContext is typically set BEFORE Initialize runs (App.axaml.cs sets it,
+            // then calls Initialize). The DataContextChanged event won't fire for that
+            // initial value, so wire up the subscriptions manually here.
+            OnDataContextChanged(this, System.EventArgs.Empty);
+
             ApplyVideoLayout();
         }
 
@@ -75,6 +85,11 @@ namespace Narabemi.Views
             {
                 vm.PropertyChanged -= OnVmPropertyChanged;
                 vm.PropertyChanged += OnVmPropertyChanged;
+                // Re-fit InnerVideoGrid once each player's source aspect is known.
+                vm.PlayerA.VideoReady -= ApplyVideoLayout;
+                vm.PlayerA.VideoReady += ApplyVideoLayout;
+                vm.PlayerB.VideoReady -= ApplyVideoLayout;
+                vm.PlayerB.VideoReady += ApplyVideoLayout;
                 ApplyVideoLayout();
             }
         }
@@ -89,59 +104,113 @@ namespace Narabemi.Views
         }
 
         private const double SplitterPx = 6.0;
+        private const double DefaultAspect = 16.0 / 9.0;  // used until a video loads
         private bool _layoutHorizontal = true;
         private bool _layoutInitialized;
 
+        /// <summary>
+        /// Computes the InnerVideoGrid's pixel size (matched to source aspect) and the
+        /// per-cell pixel widths/heights so the cropped video fills each cell with no
+        /// internal mpv letterbox — that's what makes the wipe seam line up.
+        /// </summary>
         private void ApplyVideoLayout()
         {
-            var grid     = this.FindControl<Grid>("VideoGrid");
+            var outer    = this.FindControl<Grid>("VideoGrid");
+            var inner    = this.FindControl<Grid>("InnerVideoGrid");
             var a        = this.FindControl<VideoPlayerControl>("PlayerAView");
             var b        = this.FindControl<VideoPlayerControl>("PlayerBView");
             var splitter = this.FindControl<Border>("VideoSplitter");
-            if (grid is null || a is null || b is null || splitter is null) return;
+            if (outer is null || inner is null || a is null || b is null || splitter is null) return;
 
             var ratio = 0.5;
             var horizontal = true;
+            var aspect = DefaultAspect;
             if (DataContext is MainWindowViewModel vm)
             {
                 ratio = System.Math.Clamp(vm.BlendRatio, 0.0, 1.0);
                 horizontal = vm.BlendMode == 0;
+                // Prefer Player A's source aspect; fall back to B; else 16:9.
+                if (vm.PlayerA.SourceWidth > 0 && vm.PlayerA.SourceHeight > 0)
+                    aspect = (double)vm.PlayerA.SourceWidth / vm.PlayerA.SourceHeight;
+                else if (vm.PlayerB.SourceWidth > 0 && vm.PlayerB.SourceHeight > 0)
+                    aspect = (double)vm.PlayerB.SourceWidth / vm.PlayerB.SourceHeight;
             }
 
-            // Avoid 0-star (collapsed) cells when ratio is at the extremes — keep a sliver
-            // so the underlying mpv HWND retains a positive size and continues rendering.
-            const double minStar = 0.0001;
-            var first  = System.Math.Max(ratio,         minStar);
-            var second = System.Math.Max(1.0 - ratio,   minStar);
+            // Outer bounds give us the available video area. SizeChanged subscription
+            // re-fires this on resize.
+            var availW = outer.Bounds.Width;
+            var availH = outer.Bounds.Height;
+            if (availW <= 0 || availH <= 0) return;
 
-            // Fast path: if the orientation hasn't changed, just update the existing
-            // star widths in-place. Splitter drag fires PointerMoved at high frequency,
-            // and Clear/Add of definitions causes Avalonia to re-create the cells each
-            // time — measurable jank during a fast drag.
+            // Fit a rectangle of the source aspect into the available area, leaving
+            // room for the splitter pixel band along the split axis.
+            double dispW, dispH;
+            if (horizontal)
+            {
+                // Effective "video canvas" width must fit (W + SplitterPx) into availW.
+                var fitH = availH;
+                var fitW = fitH * aspect;
+                if (fitW + SplitterPx > availW)
+                {
+                    fitW = availW - SplitterPx;
+                    fitH = fitW / aspect;
+                }
+                dispW = fitW;
+                dispH = fitH;
+            }
+            else
+            {
+                var fitW = availW;
+                var fitH = fitW / aspect;
+                if (fitH + SplitterPx > availH)
+                {
+                    fitH = availH - SplitterPx;
+                    fitW = fitH * aspect;
+                }
+                dispW = fitW;
+                dispH = fitH;
+            }
+
+            // Per-cell pixel sizes. Clamp [0.02, 0.98] mirrors the splitter drag clamp.
+            var r = System.Math.Clamp(ratio, 0.02, 0.98);
+            var cellAFirst  = horizontal
+                ? System.Math.Round(dispW * r)
+                : System.Math.Round(dispH * r);
+            var cellAxis    = horizontal ? dispW : dispH;
+            var cellBFirst  = cellAxis - cellAFirst;   // pixel-exact complement
+
+            // Inner grid is sized to displayed-source dims plus the splitter; the outer
+            // grid centers it.
+            inner.Width  = horizontal ? (dispW + SplitterPx) : dispW;
+            inner.Height = horizontal ? dispH : (dispH + SplitterPx);
+
+            // Fast path: orientation unchanged → mutate existing definitions in place.
+            // (Splitter drag fires high-frequency BlendRatio changes; Clear/Add of
+            // ColumnDefinitions causes Avalonia to re-create cells each tick.)
             if (_layoutInitialized && _layoutHorizontal == horizontal)
             {
                 if (horizontal)
                 {
-                    grid.ColumnDefinitions[0].Width = new GridLength(first,  GridUnitType.Star);
-                    grid.ColumnDefinitions[2].Width = new GridLength(second, GridUnitType.Star);
+                    inner.ColumnDefinitions[0].Width = new GridLength(cellAFirst, GridUnitType.Pixel);
+                    inner.ColumnDefinitions[2].Width = new GridLength(cellBFirst, GridUnitType.Pixel);
                 }
                 else
                 {
-                    grid.RowDefinitions[0].Height = new GridLength(first,  GridUnitType.Star);
-                    grid.RowDefinitions[2].Height = new GridLength(second, GridUnitType.Star);
+                    inner.RowDefinitions[0].Height = new GridLength(cellAFirst, GridUnitType.Pixel);
+                    inner.RowDefinitions[2].Height = new GridLength(cellBFirst, GridUnitType.Pixel);
                 }
                 return;
             }
 
             // Slow path: orientation changed (or first build) — full rebuild.
-            grid.RowDefinitions.Clear();
-            grid.ColumnDefinitions.Clear();
+            inner.RowDefinitions.Clear();
+            inner.ColumnDefinitions.Clear();
 
             if (horizontal)
             {
-                grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(first,  GridUnitType.Star)));
-                grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(SplitterPx, GridUnitType.Pixel)));
-                grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(second, GridUnitType.Star)));
+                inner.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(cellAFirst, GridUnitType.Pixel)));
+                inner.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(SplitterPx, GridUnitType.Pixel)));
+                inner.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(cellBFirst, GridUnitType.Pixel)));
                 Grid.SetRow(a, 0);        Grid.SetColumn(a, 0);
                 Grid.SetRow(splitter, 0); Grid.SetColumn(splitter, 1);
                 Grid.SetRow(b, 0);        Grid.SetColumn(b, 2);
@@ -149,9 +218,9 @@ namespace Narabemi.Views
             }
             else
             {
-                grid.RowDefinitions.Add(new RowDefinition(new GridLength(first,  GridUnitType.Star)));
-                grid.RowDefinitions.Add(new RowDefinition(new GridLength(SplitterPx, GridUnitType.Pixel)));
-                grid.RowDefinitions.Add(new RowDefinition(new GridLength(second, GridUnitType.Star)));
+                inner.RowDefinitions.Add(new RowDefinition(new GridLength(cellAFirst, GridUnitType.Pixel)));
+                inner.RowDefinitions.Add(new RowDefinition(new GridLength(SplitterPx, GridUnitType.Pixel)));
+                inner.RowDefinitions.Add(new RowDefinition(new GridLength(cellBFirst, GridUnitType.Pixel)));
                 Grid.SetRow(a, 0);        Grid.SetColumn(a, 0);
                 Grid.SetRow(splitter, 1); Grid.SetColumn(splitter, 0);
                 Grid.SetRow(b, 2);        Grid.SetColumn(b, 0);
@@ -200,12 +269,15 @@ namespace Narabemi.Views
         private void UpdateRatioFromPointer(PointerEventArgs e)
         {
             if (DataContext is not MainWindowViewModel vm) return;
-            var grid = this.FindControl<Grid>("VideoGrid");
-            if (grid is null) return;
+            // Compute the ratio relative to the InnerVideoGrid (the actual video canvas)
+            // rather than the outer VideoGrid, so the seam follows the cursor exactly
+            // even when the canvas is centered with letterbox padding around it.
+            var inner = this.FindControl<Grid>("InnerVideoGrid");
+            if (inner is null) return;
 
-            var p = e.GetPosition(grid);
+            var p = e.GetPosition(inner);
             var horizontal = vm.BlendMode == 0;
-            var size = horizontal ? grid.Bounds.Width : grid.Bounds.Height;
+            var size = horizontal ? inner.Bounds.Width : inner.Bounds.Height;
             if (size <= 0) return;
             var coord = horizontal ? p.X : p.Y;
 

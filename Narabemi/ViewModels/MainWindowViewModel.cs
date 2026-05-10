@@ -206,8 +206,10 @@ namespace Narabemi.ViewModels
         /// BlendMode changes and from each player's <see cref="VideoPlayerViewModel.VideoReady"/>.
         /// Mirrors the cross-player propagation pattern used by <see cref="OnLoopChanged"/>
         /// and <see cref="OnMasterVolumeChanged"/>.
+        /// Public so test runners can force a re-apply right before capture (the first
+        /// snapshot after launch can otherwise race mpv's decoder warmup).
         /// </summary>
-        private void UpdateCrops()
+        public void UpdateCrops()
         {
             ApplyCrop(PlayerA, isFirst: true);
             ApplyCrop(PlayerB, isFirst: false);
