@@ -179,10 +179,10 @@ namespace Narabemi.ViewModels
             _isSeeking = true;
         }
 
-        public void SeekTo(double seconds)
+        public void SeekTo(double seconds, bool exact = false)
         {
             if (_mpvInitialized)
-                _mpvPlayer.Seek(seconds);
+                _mpvPlayer.Seek(seconds, absolute: true, exact: exact);
         }
 
         public void EndSeek()

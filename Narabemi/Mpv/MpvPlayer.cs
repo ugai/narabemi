@@ -164,10 +164,14 @@ namespace Narabemi.Mpv
             }
         }
 
-        public void Seek(double seconds, bool absolute = true)
+        public void Seek(double seconds, bool absolute = true, bool exact = false)
         {
             EnsureInit();
+            // mpv seek flags: keyframes (default, approximate) vs exact (frame-accurate
+            // but slower). For snapshot/comparison work A and B must land on the same
+            // frame, so the test runner asks for exact seeking.
             var mode = absolute ? "absolute" : "relative";
+            if (exact) mode += "+exact";
             MpvApi.CommandArgs(_ctx, "seek", seconds.ToString("F3"), mode);
         }
 

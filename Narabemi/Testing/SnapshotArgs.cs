@@ -24,12 +24,19 @@ namespace Narabemi.Testing
         /// <summary>If non-null, overrides BlendMode: 0=Horizontal, 1=Vertical.</summary>
         public int? SetMode { get; init; }
 
+        /// <summary>
+        /// If true, after successful dual-player snapshot capture, run a pixel-diff
+        /// across the wipe seam (A's last cropped column vs B's first) and log the
+        /// metric. Used by autonomous regression tests.
+        /// </summary>
+        public bool VerifyWipe { get; init; }
+
         public static SnapshotArgs Parse(string[]? args)
         {
             if (args is null || args.Length == 0)
                 return new SnapshotArgs();
 
-            bool snapshot = false, bench = false, probeNative = false;
+            bool snapshot = false, bench = false, probeNative = false, verifyWipe = false;
             string? videoA = null, videoB = null;
             double seek = 5.0, benchSeconds = 10.0, probeSeconds = 10.0;
             string output = "snapshot.png";
@@ -73,6 +80,9 @@ namespace Narabemi.Testing
                             _ => (int?)null,
                         };
                         break;
+                    case "--verify-wipe":
+                        verifyWipe = true;
+                        break;
                     case "-o" or "--output" when i + 1 < args.Length:
                         output = args[++i];
                         break;
@@ -92,6 +102,7 @@ namespace Narabemi.Testing
                 OutputPath = output,
                 SetRatio = setRatio,
                 SetMode = setMode,
+                VerifyWipe = verifyWipe,
             };
         }
     }

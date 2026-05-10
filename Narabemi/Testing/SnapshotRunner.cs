@@ -92,10 +92,16 @@ namespace Narabemi.Testing
 
         private void DoSeek()
         {
-            _vm.PlayerA.SeekTo(_args.SeekSeconds);
-            if (HasPlayerB)
-                _vm.PlayerB.SeekTo(_args.SeekSeconds);
-            _logger.LogInformation("Seeked to {Seek}s, settling…", _args.SeekSeconds);
+            // Pause both players BEFORE seeking — independent playback would otherwise
+            // let A and B drift to different frames between seek and capture, putting
+            // their seam columns one or two source frames apart. Exact seek + paused
+            // freezes them on identical frames.
+            _vm.PlayerA.Pause();
+            if (HasPlayerB) _vm.PlayerB.Pause();
+
+            _vm.PlayerA.SeekTo(_args.SeekSeconds, exact: true);
+            if (HasPlayerB) _vm.PlayerB.SeekTo(_args.SeekSeconds, exact: true);
+            _logger.LogInformation("Paused + seeked exact to {Seek}s, settling…", _args.SeekSeconds);
 
             _state = State.WaitSettle;
             DispatcherTimer.RunOnce(BeginCapture, TimeSpan.FromMilliseconds(PostSeekDelayMs));
@@ -134,7 +140,12 @@ namespace Narabemi.Testing
                             else if (_captureAttempt > 1)
                                 _logger.LogInformation("Snapshot succeeded on attempt {N} ({D})",
                                     _captureAttempt, detail);
-                            Shutdown(ok ? 0 : 3);
+
+                            int exitCode = ok ? 0 : 3;
+                            if (ok && _args.VerifyWipe && HasPlayerB)
+                                exitCode = RunWipeVerification();
+
+                            Shutdown(exitCode);
                             return;
                         }
                         _logger.LogWarning("Capture attempt {N} mismatch: {D}; retrying after {Ms}ms",
@@ -185,6 +196,59 @@ namespace Narabemi.Testing
                     return (false, $"B got {gotBW}x{gotBH}, expected {expBW}x{expBH}");
             }
             return (true, "dims match");
+        }
+
+        /// <summary>
+        /// Pixel-diff verification across the wipe seam. A's rightmost cropped column
+        /// and B's leftmost cropped column correspond to ADJACENT pixels in the source
+        /// frame (source col x = floor(W*ratio) - 1 vs x = floor(W*ratio)). For the
+        /// same video on both players at the same timestamp, those columns must be
+        /// nearly identical — a large diff indicates the wipe is mis-stitched.
+        /// Returns 0 on pass, 4 on fail.
+        /// </summary>
+        private int RunWipeVerification()
+        {
+            try
+            {
+                var dirOut   = Path.GetDirectoryName(Path.GetFullPath(_args.OutputPath)) ?? string.Empty;
+                var baseName = Path.GetFileNameWithoutExtension(_args.OutputPath);
+                var ext      = Path.GetExtension(_args.OutputPath);
+                var pathA = Path.Combine(dirOut, $"{baseName}_a{ext}");
+                var pathB = Path.Combine(dirOut, $"{baseName}_b{ext}");
+
+                var (gotAW, _) = PngHelper.ReadDimensions(pathA);
+                if (gotAW <= 0)
+                {
+                    _logger.LogError("[VerifyWipe] could not read {Path}", pathA);
+                    return 4;
+                }
+
+                // Seam: A's last cropped column (source x = round(W*ratio) - 1) vs
+                // B's first cropped column (source x = round(W*ratio)). Adjacent.
+                var (seamAvg, seamMax, rows) = WipeVerifier.DiffColumns(pathA, gotAW - 1, pathB, 0);
+
+                // Baseline: an internal adjacent-column diff within A itself. Tells us
+                // what "two adjacent pixels in this scene" looks like, independent of
+                // wipe alignment. The seam diff should be in the same ballpark as this.
+                int baseColA = Math.Max(0, gotAW / 2 - 1);
+                var (baseAvg, baseMax, _) = WipeVerifier.DiffColumns(pathA, baseColA, pathA, baseColA + 1);
+
+                // Pass if seam diff isn't dramatically larger than the natural adjacent-
+                // pixel diff in the scene. 1.5x baseline tolerates sub-pixel rendering
+                // jitter and minor encoder noise without false-pass for hard misalignments.
+                var pass = seamAvg >= 0 && seamAvg <= Math.Max(baseAvg * 1.5, 30.0);
+
+                _logger.LogInformation(
+                    "[VerifyWipe] {Result} — seam avg={SeamAvg:F2} max={SeamMax} | baseline avg={BaseAvg:F2} max={BaseMax} | rows={Rows}",
+                    pass ? "PASS" : "FAIL", seamAvg, seamMax, baseAvg, baseMax, rows);
+
+                return pass ? 0 : 4;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[VerifyWipe] failed");
+                return 4;
+            }
         }
 
         private (int w, int h) ExpectedCrop(VideoPlayerViewModel p, bool isFirst)
