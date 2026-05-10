@@ -16,6 +16,18 @@ namespace Narabemi.ViewModels
         private bool _mpvInitialized;
         private DispatcherTimer? _pollTimer;
 
+        /// <summary>Source video pixel dimensions, populated on FileLoaded.</summary>
+        public int SourceWidth { get; private set; }
+        public int SourceHeight { get; private set; }
+
+        /// <summary>
+        /// Fires once both <see cref="SourceWidth"/> and <see cref="SourceHeight"/> have
+        /// been populated for the current file. Used by MainWindowViewModel to apply
+        /// the wipe crop. A single event avoids the W-then-H ordering race that two
+        /// observable properties would have.
+        /// </summary>
+        public event Action? VideoReady;
+
         [ObservableProperty]
         private string _videoPath = string.Empty;
 
@@ -216,7 +228,23 @@ namespace Narabemi.ViewModels
                 : string.Empty;
             DisplayInfo = $"{Path.GetFileName(VideoPath)} [{path}]";
             _logger.LogInformation("File loaded: {VideoPath}", VideoPath);
+
+            // Query DAR-corrected dimensions for video-crop math.
+            // dwidth/dheight is what the user perceives (anamorphic content with SAR != 1
+            // gives a different value than raw width/height).
+            // TODO: observe these properties to handle mid-stream resolution changes.
+            int.TryParse(_mpvPlayer.GetPropertyStr("dwidth"),  out var w);
+            int.TryParse(_mpvPlayer.GetPropertyStr("dheight"), out var h);
+            if (w > 0 && h > 0)
+            {
+                SourceWidth = w;
+                SourceHeight = h;
+                VideoReady?.Invoke();
+            }
         }
+
+        /// <summary>Applies an mpv video-crop string to this player. Empty to clear.</summary>
+        public void SetCrop(string crop) => _mpvPlayer.SetVideoCrop(crop);
 
         [RelayCommand]
         private void OpenFile()

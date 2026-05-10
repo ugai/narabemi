@@ -104,6 +104,10 @@ namespace Narabemi.ViewModels
                         OnPropertyChanged(nameof(WindowTitle));
                 };
             }
+
+            // Re-apply the wipe crop when each player has its source dims known.
+            PlayerA.VideoReady += UpdateCrops;
+            PlayerB.VideoReady += UpdateCrops;
         }
 
         private void SyncPlaybackState()
@@ -189,7 +193,67 @@ namespace Narabemi.ViewModels
 
         public string BlendModeLabel => BlendMode == 0 ? "Horizontal" : "Vertical";
 
-        partial void OnBlendModeChanged(int value) => OnPropertyChanged(nameof(BlendModeLabel));
+        partial void OnBlendModeChanged(int value)
+        {
+            OnPropertyChanged(nameof(BlendModeLabel));
+            UpdateCrops();
+        }
+
+        partial void OnBlendRatioChanged(double value) => UpdateCrops();
+
+        /// <summary>
+        /// Recomputes and applies the wipe crop on both players. Called from BlendRatio /
+        /// BlendMode changes and from each player's <see cref="VideoPlayerViewModel.VideoReady"/>.
+        /// Mirrors the cross-player propagation pattern used by <see cref="OnLoopChanged"/>
+        /// and <see cref="OnMasterVolumeChanged"/>.
+        /// </summary>
+        private void UpdateCrops()
+        {
+            ApplyCrop(PlayerA, isFirst: true);
+            ApplyCrop(PlayerB, isFirst: false);
+        }
+
+        private void ApplyCrop(VideoPlayerViewModel p, bool isFirst)
+        {
+            var w = p.SourceWidth;
+            var h = p.SourceHeight;
+            if (w <= 0 || h <= 0) return;   // not loaded yet — VideoReady will fire later
+
+            // Clamp matches MainWindow.axaml.cs:UpdateRatioFromPointer; load-bearing here
+            // because programmatic setters (state restore, slider) bypass the splitter
+            // drag clamp. A 0-dimension crop would be rejected by mpv.
+            var r = Math.Clamp(BlendRatio, 0.02, 0.98);
+
+            string crop;
+            if (BlendMode == 0)              // Horizontal: split on X
+            {
+                if (isFirst)
+                {
+                    var cw = (int)Math.Round(w * r);
+                    crop = $"{cw}x{h}+0+0";
+                }
+                else
+                {
+                    var x = (int)Math.Round(w * r);
+                    crop = $"{w - x}x{h}+{x}+0";  // (w - x) avoids round-trip mismatch at the seam
+                }
+            }
+            else                             // Vertical: split on Y
+            {
+                if (isFirst)
+                {
+                    var ch = (int)Math.Round(h * r);
+                    crop = $"{w}x{ch}+0+0";
+                }
+                else
+                {
+                    var y = (int)Math.Round(h * r);
+                    crop = $"{w}x{h - y}+0+{y}";
+                }
+            }
+
+            p.SetCrop(crop);
+        }
 
         /// <summary>
         /// Seeks the primary player to <paramref name="seconds"/>.

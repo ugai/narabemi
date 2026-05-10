@@ -141,6 +141,18 @@ namespace Narabemi.Mpv
             }
         }
 
+        /// <summary>
+        /// Sets mpv's video-crop property to restrict the visible region. Format is
+        /// "WxH+X+Y" in source-pixel coordinates, or empty string to clear.
+        /// Soft no-op when the player isn't initialized yet — the caller is expected
+        /// to re-apply once the file loads (see <see cref="MpvPlayer.FileLoaded"/>).
+        /// </summary>
+        public int SetVideoCrop(string crop)
+        {
+            if (_ctx == IntPtr.Zero) return 0;
+            return MpvApi.SetPropertyString(_ctx, "video-crop", crop ?? string.Empty);
+        }
+
         public bool IsPaused
         {
             get
