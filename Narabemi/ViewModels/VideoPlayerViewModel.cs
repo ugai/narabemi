@@ -19,6 +19,7 @@ namespace Narabemi.ViewModels
         /// <summary>Source video pixel dimensions, populated on FileLoaded.</summary>
         public int SourceWidth { get; private set; }
         public int SourceHeight { get; private set; }
+        private bool _sourceDimsSet;
 
         /// <summary>
         /// Fires once both <see cref="SourceWidth"/> and <see cref="SourceHeight"/> have
@@ -133,6 +134,8 @@ namespace Narabemi.ViewModels
 
         partial void OnVideoPathChanged(string value)
         {
+            // New file → re-read dims on the next FileLoaded.
+            _sourceDimsSet = false;
             if (!string.IsNullOrEmpty(value) && File.Exists(value) && _mpvInitialized)
                 _mpvPlayer.LoadFile(value);
         }
@@ -229,16 +232,22 @@ namespace Narabemi.ViewModels
             DisplayInfo = $"{Path.GetFileName(VideoPath)} [{path}]";
             _logger.LogInformation("File loaded: {VideoPath}", VideoPath);
 
-            // Query DAR-corrected dimensions for video-crop math.
-            // dwidth/dheight is what the user perceives (anamorphic content with SAR != 1
-            // gives a different value than raw width/height).
-            // TODO: observe these properties to handle mid-stream resolution changes.
-            int.TryParse(_mpvPlayer.GetPropertyStr("dwidth"),  out var w);
-            int.TryParse(_mpvPlayer.GetPropertyStr("dheight"), out var h);
+            // Read raw source dims via `width`/`height` rather than `dwidth`/`dheight`:
+            // dwidth reflects POST-crop display size, so once we apply video-crop the
+            // second FileLoaded event would report the cropped size and overwrite our
+            // SourceWidth — cascading into wrong crop math next iteration.
+            // For non-anamorphic content (SAR=1) width == dwidth, which covers our
+            // local mp4/mkv use case. Anamorphic handling is a future tick.
+            // The _sourceDimsSet guard covers the same race even if mpv reported width
+            // differently across reconfigs.
+            if (_sourceDimsSet) return;
+            int.TryParse(_mpvPlayer.GetPropertyStr("width"),  out var w);
+            int.TryParse(_mpvPlayer.GetPropertyStr("height"), out var h);
             if (w > 0 && h > 0)
             {
                 SourceWidth = w;
                 SourceHeight = h;
+                _sourceDimsSet = true;
                 VideoReady?.Invoke();
             }
         }

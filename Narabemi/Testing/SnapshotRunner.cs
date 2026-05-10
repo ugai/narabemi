@@ -37,6 +37,12 @@ namespace Narabemi.Testing
         private const int PostSeekDelayMs = 1500;
         private const int TimeoutSeconds  = 30;
 
+        // Retry harness — verify per-player PNG dims against expected and retry if
+        // they don't match (mpv occasionally captures a pre-crop frame on first run).
+        private const int MaxCaptureAttempts = 5;
+        private const int RetryDelayMs = 400;
+        private int _captureAttempt;
+
         public SnapshotRunner(
             SnapshotArgs args,
             MainWindowViewModel vm,
@@ -99,21 +105,41 @@ namespace Narabemi.Testing
         {
             if (_state != State.WaitSettle) return;
             _state = State.Capturing;
+            _captureAttempt = 0;
+            AttemptCapture();
+        }
+
+        private void AttemptCapture()
+        {
+            _captureAttempt++;
             try
             {
-                // Defensive re-apply of crops right before capture. Without this, the
-                // very first snapshot after launch occasionally captures a pre-crop
-                // frame even with a 1.5s settle delay — likely a race with mpv's first
-                // VideoReconfig event.
+                // Re-apply crops right before each attempt — covers both the first-run
+                // race (pre-crop frame from decoder warmup) and any seek-induced filter
+                // chain reset that may have dropped the previous video-crop.
                 _vm.UpdateCrops();
 
-                // Give mpv one more frame interval to render the (re-)cropped output.
+                // Give mpv one frame interval to render the (re-)cropped output.
                 DispatcherTimer.RunOnce(() =>
                 {
                     try
                     {
                         CaptureAll();
-                        Shutdown(0);
+                        var (ok, detail) = VerifyCaptureDims();
+                        if (ok || _captureAttempt >= MaxCaptureAttempts)
+                        {
+                            if (!ok)
+                                _logger.LogError("Snapshot crop verification failed after {N} attempts: {D}",
+                                    _captureAttempt, detail);
+                            else if (_captureAttempt > 1)
+                                _logger.LogInformation("Snapshot succeeded on attempt {N} ({D})",
+                                    _captureAttempt, detail);
+                            Shutdown(ok ? 0 : 3);
+                            return;
+                        }
+                        _logger.LogWarning("Capture attempt {N} mismatch: {D}; retrying after {Ms}ms",
+                            _captureAttempt, detail, RetryDelayMs);
+                        DispatcherTimer.RunOnce(AttemptCapture, TimeSpan.FromMilliseconds(RetryDelayMs));
                     }
                     catch (Exception ex)
                     {
@@ -126,6 +152,58 @@ namespace Narabemi.Testing
             {
                 _logger.LogError(ex, "Snapshot capture failed");
                 Shutdown(1);
+            }
+        }
+
+        private (bool ok, string detail) VerifyCaptureDims()
+        {
+            var dirOut   = Path.GetDirectoryName(Path.GetFullPath(_args.OutputPath)) ?? string.Empty;
+            var baseName = Path.GetFileNameWithoutExtension(_args.OutputPath);
+            var ext      = Path.GetExtension(_args.OutputPath);
+
+            var pathA = HasPlayerB ? Path.Combine(dirOut, $"{baseName}_a{ext}")
+                                   : Path.GetFullPath(_args.OutputPath);
+            var (gotAW, gotAH) = PngHelper.ReadDimensions(pathA);
+            var (expAW, expAH) = ExpectedCrop(_vm.PlayerA, isFirst: true);
+            _logger.LogInformation("[Verify] A: got {GW}x{GH} expected {EW}x{EH} (sourceW={SW} ratio={R:F4})",
+                gotAW, gotAH, expAW, expAH, _vm.PlayerA.SourceWidth, _vm.BlendRatio);
+            if (expAW <= 0)
+                return (false, $"A source dims unknown (got {gotAW}x{gotAH})");
+            if (gotAW != expAW || gotAH != expAH)
+                return (false, $"A got {gotAW}x{gotAH}, expected {expAW}x{expAH}");
+
+            if (HasPlayerB)
+            {
+                var pathB = Path.Combine(dirOut, $"{baseName}_b{ext}");
+                var (gotBW, gotBH) = PngHelper.ReadDimensions(pathB);
+                var (expBW, expBH) = ExpectedCrop(_vm.PlayerB, isFirst: false);
+                _logger.LogInformation("[Verify] B: got {GW}x{GH} expected {EW}x{EH} (sourceW={SW})",
+                    gotBW, gotBH, expBW, expBH, _vm.PlayerB.SourceWidth);
+                if (expBW <= 0)
+                    return (false, $"B source dims unknown (got {gotBW}x{gotBH})");
+                if (gotBW != expBW || gotBH != expBH)
+                    return (false, $"B got {gotBW}x{gotBH}, expected {expBW}x{expBH}");
+            }
+            return (true, "dims match");
+        }
+
+        private (int w, int h) ExpectedCrop(VideoPlayerViewModel p, bool isFirst)
+        {
+            // Mirrors MainWindowViewModel.ApplyCrop's math; can't share directly because
+            // ApplyCrop is private and producing the string only — we want the int dims.
+            var w = p.SourceWidth;
+            var h = p.SourceHeight;
+            if (w <= 0 || h <= 0) return (0, 0);
+            var r = Math.Clamp(_vm.BlendRatio, 0.02, 0.98);
+            if (_vm.BlendMode == 0)
+            {
+                var x = (int)Math.Round(w * r);
+                return isFirst ? (x, h) : (w - x, h);
+            }
+            else
+            {
+                var y = (int)Math.Round(h * r);
+                return isFirst ? (w, y) : (w, h - y);
             }
         }
 
