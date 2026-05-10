@@ -58,7 +58,7 @@ namespace Narabemi.Views
             Closing += OnClosing;
             KeyDown += OnKeyDown;
 
-            var splitter = this.FindControl<Panel>("VideoSplitter");
+            var splitter = this.FindControl<Border>("VideoSplitter");
             if (splitter is not null)
             {
                 splitter.PointerPressed  += OnSplitterPointerPressed;
@@ -103,7 +103,7 @@ namespace Narabemi.Views
             }
         }
 
-        private const double SplitterPx = 6.0;
+        private const double SplitterPx = 1.0;
         private const double DefaultAspect = 16.0 / 9.0;  // used until a video loads
         private bool _layoutHorizontal = true;
         private bool _layoutInitialized;
@@ -115,13 +115,12 @@ namespace Narabemi.Views
         /// </summary>
         private void ApplyVideoLayout()
         {
-            var outer        = this.FindControl<Grid>("VideoGrid");
-            var inner        = this.FindControl<Grid>("InnerVideoGrid");
-            var a            = this.FindControl<VideoPlayerControl>("PlayerAView");
-            var b            = this.FindControl<VideoPlayerControl>("PlayerBView");
-            var splitter     = this.FindControl<Panel>("VideoSplitter");
-            var splitterLine = this.FindControl<Border>("SplitterLine");
-            if (outer is null || inner is null || a is null || b is null || splitter is null || splitterLine is null) return;
+            var outer    = this.FindControl<Grid>("VideoGrid");
+            var inner    = this.FindControl<Grid>("InnerVideoGrid");
+            var a        = this.FindControl<VideoPlayerControl>("PlayerAView");
+            var b        = this.FindControl<VideoPlayerControl>("PlayerBView");
+            var splitter = this.FindControl<Border>("VideoSplitter");
+            if (outer is null || inner is null || a is null || b is null || splitter is null) return;
 
             var ratio = 0.5;
             var horizontal = true;
@@ -216,11 +215,6 @@ namespace Narabemi.Views
                 Grid.SetRow(splitter, 0); Grid.SetColumn(splitter, 1);
                 Grid.SetRow(b, 0);        Grid.SetColumn(b, 2);
                 splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast);
-                // 1px vertical line, full height, centered horizontally in the 6px hit zone.
-                splitterLine.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
-                splitterLine.VerticalAlignment   = Avalonia.Layout.VerticalAlignment.Stretch;
-                splitterLine.Width  = 1;
-                splitterLine.Height = double.NaN;
             }
             else
             {
@@ -231,11 +225,6 @@ namespace Narabemi.Views
                 Grid.SetRow(splitter, 1); Grid.SetColumn(splitter, 0);
                 Grid.SetRow(b, 2);        Grid.SetColumn(b, 0);
                 splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeNorthSouth);
-                // 1px horizontal line, full width, centered vertically in the 6px hit zone.
-                splitterLine.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
-                splitterLine.VerticalAlignment   = Avalonia.Layout.VerticalAlignment.Center;
-                splitterLine.Width  = double.NaN;
-                splitterLine.Height = 1;
             }
 
             _layoutHorizontal = horizontal;
