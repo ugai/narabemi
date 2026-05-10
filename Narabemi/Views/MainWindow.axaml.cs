@@ -1,6 +1,8 @@
+using System;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -15,6 +17,19 @@ namespace Narabemi.Views
 {
     public partial class MainWindow : Window
     {
+        // Win32 mouse capture is required for splitter drag because Avalonia's
+        // Pointer.Capture() doesn't override Windows-level routing to child HWNDs.
+        // When the cursor crosses over a NativeControlHost video panel during drag,
+        // WM_MOUSEMOVE goes to the mpv HWND and Avalonia stops seeing PointerMoved.
+        // SetCapture forces all mouse messages back to our parent window for the
+        // duration of the drag.
+        [LibraryImport("user32.dll")]
+        private static partial IntPtr SetCapture(IntPtr hwnd);
+
+        [LibraryImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool ReleaseCapture();
+
         private ControlFadeAnimator? _fadeAnimator;
         private ControlFadeManager? _fadeManager;
 
@@ -61,9 +76,10 @@ namespace Narabemi.Views
             var splitter = this.FindControl<Border>("VideoSplitter");
             if (splitter is not null)
             {
-                splitter.PointerPressed  += OnSplitterPointerPressed;
-                splitter.PointerMoved    += OnSplitterPointerMoved;
-                splitter.PointerReleased += OnSplitterPointerReleased;
+                splitter.PointerPressed     += OnSplitterPointerPressed;
+                splitter.PointerMoved       += OnSplitterPointerMoved;
+                splitter.PointerReleased    += OnSplitterPointerReleased;
+                splitter.PointerCaptureLost += OnSplitterPointerCaptureLost;
             }
 
             // Window/video-area resize must re-fit the aspect-locked inner grid.
@@ -248,6 +264,15 @@ namespace Narabemi.Views
 
             _splitterDragging = true;
             e.Pointer.Capture(splitter);
+
+            // Win32 capture so the parent window receives WM_MOUSEMOVE/WM_LBUTTONUP
+            // even while the cursor is over the mpv child HWND. Without this, the
+            // Avalonia Pointer.Capture above is silently bypassed once the cursor
+            // crosses into a NativeControlHost — the symptom is "drag freezes after
+            // the cursor leaves the splitter strip".
+            var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (hwnd != IntPtr.Zero) SetCapture(hwnd);
+
             UpdateRatioFromPointer(e);
             e.Handled = true;
         }
@@ -261,9 +286,23 @@ namespace Narabemi.Views
         private void OnSplitterPointerReleased(object? sender, PointerReleasedEventArgs e)
         {
             if (!_splitterDragging) return;
-            _splitterDragging = false;
-            e.Pointer.Capture(null);
+            EndSplitterDrag(e.Pointer);
             e.Handled = true;
+        }
+
+        private void OnSplitterPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+        {
+            // Alt-Tab, popup, etc. can yank Avalonia's pointer capture mid-drag. Make
+            // sure we also drop the Win32 capture so the cursor doesn't get stuck.
+            if (_splitterDragging)
+                EndSplitterDrag(e.Pointer);
+        }
+
+        private void EndSplitterDrag(IPointer? pointer)
+        {
+            _splitterDragging = false;
+            pointer?.Capture(null);
+            ReleaseCapture();
         }
 
         private void UpdateRatioFromPointer(PointerEventArgs e)
