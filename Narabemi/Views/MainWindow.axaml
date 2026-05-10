@@ -101,7 +101,7 @@
                                Foreground="#AAAAAA" FontSize="11"
                                VerticalAlignment="Center" />
                     <Slider Minimum="0" Maximum="1"
-                            Value="{Binding BlendRatio}"
+                            Value="{Binding BlendRatio, Mode=TwoWay}"
                             Width="200"
                             VerticalAlignment="Center" />
                     <Button x:Name="BlendModeButton"
