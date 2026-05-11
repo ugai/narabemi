@@ -17,18 +17,30 @@ namespace Narabemi.Views
 {
     public partial class MainWindow : Window
     {
-        // Win32 mouse capture is required for splitter drag because Avalonia's
-        // Pointer.Capture() doesn't override Windows-level routing to child HWNDs.
-        // When the cursor crosses over a NativeControlHost video panel during drag,
-        // WM_MOUSEMOVE goes to the mpv HWND and Avalonia stops seeing PointerMoved.
-        // SetCapture forces all mouse messages back to our parent window for the
-        // duration of the drag.
+        // SetCapture alone doesn't help with NativeControlHost airspace — the cursor
+        // crossing into a child HWND still loses the Avalonia drag. Workaround: poll
+        // the cursor position and mouse-button state directly via Win32 during drag,
+        // so we don't depend on Avalonia receiving any pointer event at all.
         [LibraryImport("user32.dll")]
         private static partial IntPtr SetCapture(IntPtr hwnd);
 
         [LibraryImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static partial bool ReleaseCapture();
+
+        [LibraryImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool GetCursorPos(out POINT point);
+
+        [LibraryImport("user32.dll")]
+        private static partial short GetAsyncKeyState(int vKey);
+
+        private const int VK_LBUTTON = 0x01;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT { public int X; public int Y; }
+
+        private Avalonia.Threading.DispatcherTimer? _dragPollTimer;
 
         private ControlFadeAnimator? _fadeAnimator;
         private ControlFadeManager? _fadeManager;
@@ -265,16 +277,60 @@ namespace Narabemi.Views
             _splitterDragging = true;
             e.Pointer.Capture(splitter);
 
-            // Win32 capture so the parent window receives WM_MOUSEMOVE/WM_LBUTTONUP
-            // even while the cursor is over the mpv child HWND. Without this, the
-            // Avalonia Pointer.Capture above is silently bypassed once the cursor
-            // crosses into a NativeControlHost — the symptom is "drag freezes after
-            // the cursor leaves the splitter strip".
+            // Defensive Win32 capture so any in-Avalonia pointer events still get
+            // routed correctly; the polling timer below is the real workhorse.
             var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
             if (hwnd != IntPtr.Zero) SetCapture(hwnd);
 
+            // Start polling: Avalonia's PointerMoved stops firing once the cursor
+            // crosses into the mpv NativeControlHost child HWND. Bypass the input
+            // pipeline entirely by reading GetCursorPos directly each frame, and
+            // ending the drag when GetAsyncKeyState reports the L-button is up.
+            _dragPollTimer?.Stop();
+            _dragPollTimer = new Avalonia.Threading.DispatcherTimer(
+                TimeSpan.FromMilliseconds(16),
+                Avalonia.Threading.DispatcherPriority.Input,
+                OnDragPollTick);
+            _dragPollTimer.Start();
+
             UpdateRatioFromPointer(e);
             e.Handled = true;
+        }
+
+        private void OnDragPollTick(object? sender, EventArgs e)
+        {
+            if (!_splitterDragging) { _dragPollTimer?.Stop(); return; }
+
+            // L-button released? End the drag — PointerReleased won't fire if the
+            // cursor was over an mpv HWND when the button came up.
+            if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+            {
+                EndSplitterDrag(null);
+                return;
+            }
+
+            UpdateRatioFromCursor();
+        }
+
+        private void UpdateRatioFromCursor()
+        {
+            if (DataContext is not MainWindowViewModel vm) return;
+            var inner = this.FindControl<Grid>("InnerVideoGrid");
+            if (inner is null) return;
+            if (!GetCursorPos(out var screenPt)) return;
+
+            // Screen (physical px) → window client (DIPs) → InnerVideoGrid local DIPs.
+            var clientPoint = this.PointToClient(new PixelPoint(screenPt.X, screenPt.Y));
+            var pt = this.TranslatePoint(clientPoint, inner) ?? clientPoint;
+
+            var horizontal = vm.BlendMode == 0;
+            var size = horizontal ? inner.Bounds.Width : inner.Bounds.Height;
+            if (size <= 0) return;
+            var coord = horizontal ? pt.X : pt.Y;
+
+            const double minRatio = 0.02;
+            const double maxRatio = 0.98;
+            vm.BlendRatio = System.Math.Clamp(coord / size, minRatio, maxRatio);
         }
 
         private void OnSplitterPointerMoved(object? sender, PointerEventArgs e)
@@ -303,6 +359,8 @@ namespace Narabemi.Views
             _splitterDragging = false;
             pointer?.Capture(null);
             ReleaseCapture();
+            _dragPollTimer?.Stop();
+            _dragPollTimer = null;
         }
 
         private void UpdateRatioFromPointer(PointerEventArgs e)
