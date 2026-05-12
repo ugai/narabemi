@@ -41,8 +41,6 @@ namespace Narabemi.Views
         private struct POINT { public int X; public int Y; }
 
         private System.Threading.Timer? _dragPollTimer;
-        private int _dragTickCount;
-        private long _lastDragLogTick;
 
         private ControlFadeAnimator? _fadeAnimator;
         private ControlFadeManager? _fadeManager;
@@ -290,15 +288,11 @@ namespace Narabemi.Views
             var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
             if (hwnd != IntPtr.Zero) SetCapture(hwnd);
 
-            DiagLog($"[DRAG] press @ratio={vm.BlendRatio:F3} hwnd={hwnd.ToInt64():X}");
-
             // System.Threading.Timer runs on the thread pool, so it fires regardless
             // of how the UI dispatcher is occupied. We marshal back to the UI thread
             // for the actual ratio update. This was switched from DispatcherTimer
             // because the latter wasn't reliably ticking once a Win32 mouse capture
             // entered modal-ish behavior on this hardware.
-            _dragTickCount = 0;
-            _lastDragLogTick = 0;
             _dragPollTimer?.Dispose();
             _dragPollTimer = new System.Threading.Timer(
                 _ => Avalonia.Threading.Dispatcher.UIThread.Post(OnDragPollTick,
@@ -314,13 +308,10 @@ namespace Narabemi.Views
         {
             if (!_splitterDragging) { _dragPollTimer?.Dispose(); _dragPollTimer = null; return; }
 
-            _dragTickCount++;
-
             // L-button released? End the drag — PointerReleased won't fire if the
             // cursor was over an mpv HWND when the button came up.
             if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
             {
-                DiagLog($"[DRAG] release detected via key state, ticks={_dragTickCount}");
                 EndSplitterDrag(null);
                 return;
             }
@@ -332,8 +323,8 @@ namespace Narabemi.Views
         {
             if (DataContext is not MainWindowViewModel vm) return;
             var inner = this.FindControl<Grid>("InnerVideoGrid");
-            if (inner is null) { DiagLog("[DRAG] inner null"); return; }
-            if (!GetCursorPos(out var screenPt)) { DiagLog("[DRAG] GetCursorPos failed"); return; }
+            if (inner is null) return;
+            if (!GetCursorPos(out var screenPt)) return;
 
             // Screen (physical px) → window client (DIPs) → InnerVideoGrid local DIPs.
             var clientPoint = this.PointToClient(new PixelPoint(screenPt.X, screenPt.Y));
@@ -341,38 +332,12 @@ namespace Narabemi.Views
 
             var horizontal = vm.BlendMode == 0;
             var size = horizontal ? inner.Bounds.Width : inner.Bounds.Height;
-            if (size <= 0) { DiagLog($"[DRAG] inner size 0 (Bounds={inner.Bounds})"); return; }
+            if (size <= 0) return;
             var coord = horizontal ? pt.X : pt.Y;
 
             const double minRatio = 0.02;
             const double maxRatio = 0.98;
-            var newRatio = System.Math.Clamp(coord / size, minRatio, maxRatio);
-
-            // Throttle logs to ~once per 200ms so the file stays readable during long drags.
-            var now = Environment.TickCount64;
-            if (now - _lastDragLogTick > 200)
-            {
-                _lastDragLogTick = now;
-                DiagLog($"[DRAG] tick={_dragTickCount} screen=({screenPt.X},{screenPt.Y}) " +
-                        $"client=({clientPoint.X:F1},{clientPoint.Y:F1}) " +
-                        $"inner=({pt.X:F1},{pt.Y:F1}) size={size:F1} " +
-                        $"ratio {vm.BlendRatio:F3}→{newRatio:F3}");
-            }
-
-            vm.BlendRatio = newRatio;
-        }
-
-        private static void DiagLog(string msg)
-        {
-            // Direct file append — avoids any pipeline routing that might be blocked
-            // while a Win32 mouse capture is in effect.
-            try
-            {
-                var path = System.IO.Path.Combine(AppContext.BaseDirectory, "drag-diag.log");
-                System.IO.File.AppendAllText(path,
-                    $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}");
-            }
-            catch { /* best-effort */ }
+            vm.BlendRatio = System.Math.Clamp(coord / size, minRatio, maxRatio);
         }
 
         private void OnSplitterPointerMoved(object? sender, PointerEventArgs e)
@@ -403,7 +368,6 @@ namespace Narabemi.Views
             ReleaseCapture();
             _dragPollTimer?.Dispose();
             _dragPollTimer = null;
-            DiagLog($"[DRAG] end (ticks={_dragTickCount})");
         }
 
         private void UpdateRatioFromPointer(PointerEventArgs e)
