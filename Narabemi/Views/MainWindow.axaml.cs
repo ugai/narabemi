@@ -488,9 +488,7 @@ namespace Narabemi.Views
         {
             if (e.Data.Contains(DataFormats.Files))
             {
-                var overlay = this.FindControl<Border>("DropOverlay");
-                if (overlay is not null)
-                    overlay.BorderThickness = new Thickness(3);
+                DropBorder.BorderThickness = new Thickness(3);
                 e.DragEffects = DragDropEffects.Copy;
             }
             else
@@ -501,16 +499,12 @@ namespace Narabemi.Views
 
         private void OnDragLeave(object? sender, DragEventArgs e)
         {
-            var overlay = this.FindControl<Border>("DropOverlay");
-            if (overlay is not null)
-                overlay.BorderThickness = new Thickness(0);
+            DropBorder.BorderThickness = new Thickness(0);
         }
 
         private void OnDrop(object? sender, DragEventArgs e)
         {
-            var overlay = this.FindControl<Border>("DropOverlay");
-            if (overlay is not null)
-                overlay.BorderThickness = new Thickness(0);
+            DropBorder.BorderThickness = new Thickness(0);
 
             if (DataContext is not MainWindowViewModel vm)
                 return;

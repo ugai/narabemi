@@ -51,6 +51,12 @@
                 <controls:VideoPlayerControl x:Name="PlayerBView"
                                              DataContext="{Binding PlayerB}" />
             </Grid>
+            <!-- Drop feedback overlay: non-interactive, shows a blue border on DragEnter.
+                 Declared last so it renders on top of InnerVideoGrid. -->
+            <Border x:Name="DropBorder"
+                    BorderBrush="#4488FF"
+                    BorderThickness="0"
+                    IsHitTestVisible="False" />
         </Grid>
 
         <!-- Control panel -->
