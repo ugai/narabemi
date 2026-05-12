@@ -10,10 +10,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Narabemi.Gpu;
 using Narabemi.Mpv;
 using Narabemi.Services;
 using Narabemi.Settings;
+using Narabemi.Testing;
 using Narabemi.ViewModels;
 using Narabemi.Views;
 using ZLogger;
@@ -45,11 +45,34 @@ namespace Narabemi
             {
                 DisableAvaloniaDataAnnotationValidation();
 
+                var snapshotArgs = SnapshotArgs.Parse(desktop.Args);
+
                 _host = CreateHostBuilder().Build();
                 Services = _host.Services;
 
+                if (snapshotArgs.IsProbeNativeMode)
+                {
+                    var probeLogger = Services.GetRequiredService<ILogger<ProbeRunner>>();
+                    new ProbeRunner(snapshotArgs, probeLogger).Start();
+                    base.OnFrameworkInitializationCompleted();
+                    return;
+                }
+
                 var appStatesService = Services.GetRequiredService<AppStatesService>();
                 appStatesService.LoadFile();
+
+                // In snapshot/bench mode, override video paths before ApplyTo runs
+                if (snapshotArgs.IsSnapshotMode || snapshotArgs.IsBenchMode)
+                {
+                    var state = appStatesService.Current!;
+                    if (snapshotArgs.VideoPathA is not null)
+                    {
+                        state.VideoPathList.Clear();
+                        state.VideoPathList.Add(snapshotArgs.VideoPathA);
+                        if (snapshotArgs.VideoPathB is not null)
+                            state.VideoPathList.Add(snapshotArgs.VideoPathB);
+                    }
+                }
 
                 var mainWindow = Services.GetRequiredService<MainWindow>();
                 var mainVm = Services.GetRequiredService<MainWindowViewModel>();
@@ -57,13 +80,50 @@ namespace Narabemi
 
                 mainWindow.DataContext = mainVm;
                 mainWindow.Initialize(fadeManager);
+                if (snapshotArgs.IsSnapshotMode || snapshotArgs.IsBenchMode)
+                    mainVm.IsSnapshotMode = true;
+                if (snapshotArgs.IsBenchMode)
+                    mainVm.IsBenchMode = true;
+
+                // CLI overrides for layout — applied AFTER appstates restore so they win.
+                // The state restore happens via vm.LoadedCommand which fires on Window.Loaded;
+                // hook to re-apply overrides right after that.
+                if (snapshotArgs.SetRatio.HasValue || snapshotArgs.SetMode.HasValue)
+                {
+                    void ApplyOverrides(object? _, Avalonia.Interactivity.RoutedEventArgs __)
+                    {
+                        if (snapshotArgs.SetMode.HasValue)  mainVm.BlendMode  = snapshotArgs.SetMode.Value;
+                        if (snapshotArgs.SetRatio.HasValue) mainVm.BlendRatio = snapshotArgs.SetRatio.Value;
+                        mainWindow.Loaded -= ApplyOverrides;
+                    }
+                    mainWindow.Loaded += ApplyOverrides;
+                }
 
                 desktop.MainWindow = mainWindow;
-                desktop.ShutdownRequested += (_, _) =>
+
+                // Don't save appstates on exit in snapshot/bench mode (avoids overwriting user state)
+                if (!snapshotArgs.IsSnapshotMode && !snapshotArgs.IsBenchMode)
                 {
-                    appStatesService.ApplyFrom(mainVm);
-                    appStatesService.SaveFile();
-                };
+                    desktop.ShutdownRequested += (_, _) =>
+                    {
+                        appStatesService.ApplyFrom(mainVm);
+                        appStatesService.SaveFile();
+                    };
+                }
+
+                // Start snapshot/bench runner after window is shown
+                if (snapshotArgs.IsSnapshotMode)
+                {
+                    var logger = Services.GetRequiredService<ILogger<SnapshotRunner>>();
+                    var runner = new SnapshotRunner(snapshotArgs, mainVm, logger);
+                    runner.Start(mainWindow);
+                }
+                else if (snapshotArgs.IsBenchMode)
+                {
+                    var logger = Services.GetRequiredService<ILogger<BenchmarkRunner>>();
+                    var runner = new BenchmarkRunner(snapshotArgs, mainVm, logger);
+                    runner.Start();
+                }
             }
 
             base.OnFrameworkInitializationCompleted();
@@ -92,12 +152,8 @@ namespace Narabemi
                     services.AddSingleton<AppStatesService>();
                     services.AddSingleton<ControlFadeManager>();
 
-                    // GPU pipeline services
-                    services.AddSingleton<D3D11DeviceManager>();
-                    services.AddSingleton<BlendRenderer>();
-                    services.AddSingleton<FrameSyncManager>();
-
-                    // Two independent mpv players (keyed)
+                    // Two independent mpv players (keyed). Each renders directly into its own
+                    // child HWND via vo=gpu, gpu-api=d3d11, hwdec=d3d11va — no shared GPU pipeline.
                     services.AddKeyedSingleton<MpvPlayer>("PlayerA");
                     services.AddKeyedSingleton<MpvPlayer>("PlayerB");
 

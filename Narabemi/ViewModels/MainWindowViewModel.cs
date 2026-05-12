@@ -1,8 +1,8 @@
+using System;
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
-using Narabemi.Gpu;
 using Narabemi.Settings;
 
 namespace Narabemi.ViewModels
@@ -10,8 +10,6 @@ namespace Narabemi.ViewModels
     public partial class MainWindowViewModel : ViewModelBase, IAppStateTarget
     {
         private readonly AppStatesService _appStatesService;
-        private readonly BlendRenderer? _blendRenderer;
-        private readonly FrameSyncManager? _frameSyncManager;
         private readonly ILogger<MainWindowViewModel> _logger;
 
         [ObservableProperty]
@@ -53,6 +51,22 @@ namespace Narabemi.ViewModels
         // Convenience alias: the "primary" player drives the seek bar, duration, etc.
         public VideoPlayerViewModel PrimaryPlayer => MainPlayerIndex == 0 ? PlayerA : PlayerB;
 
+        public string WindowTitle
+        {
+            get
+            {
+                var a = System.IO.Path.GetFileName(PlayerA.VideoPath);
+                var b = System.IO.Path.GetFileName(PlayerB.VideoPath);
+                return (a, b) switch
+                {
+                    ({ Length: > 0 }, { Length: > 0 }) => $"Narabemi — {a} | {b}",
+                    ({ Length: > 0 }, _) => $"Narabemi — {a}",
+                    (_, { Length: > 0 }) => $"Narabemi — {b}",
+                    _ => "Narabemi",
+                };
+            }
+        }
+
         // IAppStateTarget
         IList<IAppStatePlayerTarget> IAppStateTarget.StatePlayers =>
             new IAppStatePlayerTarget[] { PlayerA, PlayerB };
@@ -73,13 +87,9 @@ namespace Narabemi.ViewModels
             AppStatesService appStatesService,
             [Microsoft.Extensions.DependencyInjection.FromKeyedServices("PlayerA")] VideoPlayerViewModel playerA,
             [Microsoft.Extensions.DependencyInjection.FromKeyedServices("PlayerB")] VideoPlayerViewModel playerB,
-            BlendRenderer? blendRenderer,
-            FrameSyncManager? frameSyncManager,
             ILogger<MainWindowViewModel> logger)
         {
             _appStatesService = appStatesService;
-            _blendRenderer = blendRenderer;
-            _frameSyncManager = frameSyncManager;
             _logger = logger;
             PlayerA = playerA;
             PlayerB = playerB;
@@ -90,8 +100,14 @@ namespace Narabemi.ViewModels
                 {
                     if (e.PropertyName == nameof(VideoPlayerViewModel.IsPaused))
                         SyncPlaybackState();
+                    if (e.PropertyName == nameof(VideoPlayerViewModel.VideoPath))
+                        OnPropertyChanged(nameof(WindowTitle));
                 };
             }
+
+            // Re-apply the wipe crop when each player has its source dims known.
+            PlayerA.VideoReady += UpdateCrops;
+            PlayerB.VideoReady += UpdateCrops;
         }
 
         private void SyncPlaybackState()
@@ -115,6 +131,7 @@ namespace Narabemi.ViewModels
         [RelayCommand]
         private void Closed()
         {
+            if (IsSnapshotMode) return;
             _appStatesService.ApplyFrom(this);
             _appStatesService.SaveFile();
             _logger.LogInformation("State saved to appstates.json");
@@ -162,32 +179,106 @@ namespace Narabemi.ViewModels
             PlayerB.UpdateActualVolume(MasterVolume, value);
         }
 
-        partial void OnBlendRatioChanged(double value) => PushBlendParams();
-        partial void OnBlendBorderWidthChanged(double value) => PushBlendParams();
-        partial void OnBlendBorderColorChanged(ColorRgba value) => PushBlendParams();
+        /// <summary>
+        /// When true, suppresses appstates.json write on window close.
+        /// Set by App in snapshot/bench mode to avoid overwriting user state.
+        /// </summary>
+        public bool IsSnapshotMode { get; set; }
+
+        /// <summary>
+        /// When true, benchmark mode is active. Tracked independently of IsSnapshotMode
+        /// so the two test runners can be distinguished if they ever need to behave differently.
+        /// </summary>
+        public bool IsBenchMode { get; set; }
+
+        public string BlendModeLabel => BlendMode == 0 ? "Horizontal" : "Vertical";
 
         partial void OnBlendModeChanged(int value)
         {
-            _frameSyncManager?.UpdateBlendMode((BlendMode)value);
+            OnPropertyChanged(nameof(BlendModeLabel));
+            UpdateCrops();
         }
 
-        private void PushBlendParams()
-        {
-            if (_frameSyncManager is null || _blendRenderer?.OutputTexture is null) return;
+        partial void OnBlendRatioChanged(double value) => UpdateCrops();
 
-            var p = new BlendParams
+        /// <summary>
+        /// Recomputes and applies the wipe crop on both players. Called from BlendRatio /
+        /// BlendMode changes and from each player's <see cref="VideoPlayerViewModel.VideoReady"/>.
+        /// Mirrors the cross-player propagation pattern used by <see cref="OnLoopChanged"/>
+        /// and <see cref="OnMasterVolumeChanged"/>.
+        /// Public so test runners can force a re-apply right before capture (the first
+        /// snapshot after launch can otherwise race mpv's decoder warmup).
+        /// </summary>
+        public void UpdateCrops()
+        {
+            ApplyCrop(PlayerA, isFirst: true);
+            ApplyCrop(PlayerB, isFirst: false);
+        }
+
+        private void ApplyCrop(VideoPlayerViewModel p, bool isFirst)
+        {
+            var w = p.SourceWidth;
+            var h = p.SourceHeight;
+            if (w <= 0 || h <= 0) return;   // not loaded yet — VideoReady will fire later
+
+            // Clamp matches MainWindow.axaml.cs:UpdateRatioFromPointer; load-bearing here
+            // because programmatic setters (state restore, slider) bypass the splitter
+            // drag clamp. A 0-dimension crop would be rejected by mpv.
+            var r = Math.Clamp(BlendRatio, 0.02, 0.98);
+
+            string crop;
+            if (BlendMode == 0)              // Horizontal: split on X
             {
-                WidthPx = _blendRenderer.OutputTexture.Width,
-                HeightPx = _blendRenderer.OutputTexture.Height,
-                Ratio = (float)BlendRatio,
-                BorderWidth = (float)BlendBorderWidth,
-                BorderColor = new System.Numerics.Vector4(
-                    BlendBorderColor.R / 255f,
-                    BlendBorderColor.G / 255f,
-                    BlendBorderColor.B / 255f,
-                    BlendBorderColor.A / 255f),
-            };
-            _frameSyncManager.UpdateBlendParams(p);
+                if (isFirst)
+                {
+                    var cw = (int)Math.Round(w * r);
+                    crop = $"{cw}x{h}+0+0";
+                }
+                else
+                {
+                    var x = (int)Math.Round(w * r);
+                    crop = $"{w - x}x{h}+{x}+0";  // (w - x) avoids round-trip mismatch at the seam
+                }
+            }
+            else                             // Vertical: split on Y
+            {
+                if (isFirst)
+                {
+                    var ch = (int)Math.Round(h * r);
+                    crop = $"{w}x{ch}+0+0";
+                }
+                else
+                {
+                    var y = (int)Math.Round(h * r);
+                    crop = $"{w}x{h - y}+0+{y}";
+                }
+            }
+
+            p.SetCrop(crop);
+        }
+
+        /// <summary>
+        /// Seeks the primary player to <paramref name="seconds"/>.
+        /// When AutoSync is on, also seeks the secondary player to the same position.
+        /// </summary>
+        public void SeekBoth(double seconds)
+        {
+            PrimaryPlayer.SeekTo(seconds);
+            if (AutoSync)
+            {
+                var secondary = MainPlayerIndex == 0 ? PlayerB : PlayerA;
+                secondary.SeekTo(seconds);
+            }
+        }
+
+        /// <summary>
+        /// Seeks both players by a relative offset. Used by keyboard shortcuts.
+        /// </summary>
+        public void SeekRelative(double deltaSeconds)
+        {
+            var pos = PrimaryPlayer.Position + deltaSeconds;
+            pos = Math.Clamp(pos, 0, PrimaryPlayer.Duration > 0 ? PrimaryPlayer.Duration : pos);
+            SeekBoth(pos);
         }
 
         [RelayCommand]

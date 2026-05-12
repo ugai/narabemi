@@ -16,6 +16,19 @@ namespace Narabemi.ViewModels
         private bool _mpvInitialized;
         private DispatcherTimer? _pollTimer;
 
+        /// <summary>Source video pixel dimensions, populated on FileLoaded.</summary>
+        public int SourceWidth { get; private set; }
+        public int SourceHeight { get; private set; }
+        private bool _sourceDimsSet;
+
+        /// <summary>
+        /// Fires once both <see cref="SourceWidth"/> and <see cref="SourceHeight"/> have
+        /// been populated for the current file. Used by MainWindowViewModel to apply
+        /// the wipe crop. A single event avoids the W-then-H ordering race that two
+        /// observable properties would have.
+        /// </summary>
+        public event Action? VideoReady;
+
         [ObservableProperty]
         private string _videoPath = string.Empty;
 
@@ -42,6 +55,17 @@ namespace Narabemi.ViewModels
 
         private bool _isSeeking;
 
+        public string TimeDisplay => $"{FormatTime(Position)} / {FormatTime(Duration)}";
+
+        private static string FormatTime(double totalSeconds)
+        {
+            if (totalSeconds < 0) totalSeconds = 0;
+            var ts = TimeSpan.FromSeconds(totalSeconds);
+            return ts.TotalHours >= 1
+                ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
+                : $"{ts.Minutes}:{ts.Seconds:D2}";
+        }
+
         public MpvPlayer MpvPlayer => _mpvPlayer;
 
         public VideoPlayerViewModel(MpvPlayer mpvPlayer, ILogger<VideoPlayerViewModel> logger)
@@ -62,25 +86,14 @@ namespace Narabemi.ViewModels
         private bool _pendingLoop;
 
         /// <summary>
-        /// Initializes mpv with native window embedding (legacy --wid mode, Phase 1).
+        /// Initializes mpv with native D3D11 video output and full HW decoding,
+        /// rendering directly into the provided child HWND.
         /// </summary>
         public void InitMpv(IntPtr windowHandle)
         {
             if (_mpvInitialized) return;
 
-            _mpvPlayer.Init(windowHandle.ToInt64());
-            FinishInit();
-        }
-
-        /// <summary>
-        /// Initializes mpv in headless mode for use with the render API (Phase 2).
-        /// MpvGlRenderer must call CreateRenderContext() separately after this.
-        /// </summary>
-        public void InitMpvHeadless()
-        {
-            if (_mpvInitialized) return;
-
-            _mpvPlayer.InitHeadless();
+            _mpvPlayer.InitNativeD3D11(windowHandle.ToInt64());
             FinishInit();
         }
 
@@ -116,8 +129,13 @@ namespace Narabemi.ViewModels
                 IsPaused = paused;
         }
 
+        partial void OnPositionChanged(double value) => OnPropertyChanged(nameof(TimeDisplay));
+        partial void OnDurationChanged(double value) => OnPropertyChanged(nameof(TimeDisplay));
+
         partial void OnVideoPathChanged(string value)
         {
+            // New file → re-read dims on the next FileLoaded.
+            _sourceDimsSet = false;
             if (!string.IsNullOrEmpty(value) && File.Exists(value) && _mpvInitialized)
                 _mpvPlayer.LoadFile(value);
         }
@@ -161,10 +179,10 @@ namespace Narabemi.ViewModels
             _isSeeking = true;
         }
 
-        public void SeekTo(double seconds)
+        public void SeekTo(double seconds, bool exact = false)
         {
             if (_mpvInitialized)
-                _mpvPlayer.Seek(seconds);
+                _mpvPlayer.Seek(seconds, absolute: true, exact: exact);
         }
 
         public void EndSeek()
@@ -213,7 +231,29 @@ namespace Narabemi.ViewModels
                 : string.Empty;
             DisplayInfo = $"{Path.GetFileName(VideoPath)} [{path}]";
             _logger.LogInformation("File loaded: {VideoPath}", VideoPath);
+
+            // Read raw source dims via `width`/`height` rather than `dwidth`/`dheight`:
+            // dwidth reflects POST-crop display size, so once we apply video-crop the
+            // second FileLoaded event would report the cropped size and overwrite our
+            // SourceWidth — cascading into wrong crop math next iteration.
+            // For non-anamorphic content (SAR=1) width == dwidth, which covers our
+            // local mp4/mkv use case. Anamorphic handling is a future tick.
+            // The _sourceDimsSet guard covers the same race even if mpv reported width
+            // differently across reconfigs.
+            if (_sourceDimsSet) return;
+            int.TryParse(_mpvPlayer.GetPropertyStr("width"),  out var w);
+            int.TryParse(_mpvPlayer.GetPropertyStr("height"), out var h);
+            if (w > 0 && h > 0)
+            {
+                SourceWidth = w;
+                SourceHeight = h;
+                _sourceDimsSet = true;
+                VideoReady?.Invoke();
+            }
         }
+
+        /// <summary>Applies an mpv video-crop string to this player. Empty to clear.</summary>
+        public void SetCrop(string crop) => _mpvPlayer.SetVideoCrop(crop);
 
         [RelayCommand]
         private void OpenFile()

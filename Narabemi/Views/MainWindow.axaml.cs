@@ -1,5 +1,8 @@
+using System;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -14,6 +17,31 @@ namespace Narabemi.Views
 {
     public partial class MainWindow : Window
     {
+        // SetCapture alone doesn't help with NativeControlHost airspace — the cursor
+        // crossing into a child HWND still loses the Avalonia drag. Workaround: poll
+        // the cursor position and mouse-button state directly via Win32 during drag,
+        // so we don't depend on Avalonia receiving any pointer event at all.
+        [LibraryImport("user32.dll")]
+        private static partial IntPtr SetCapture(IntPtr hwnd);
+
+        [LibraryImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool ReleaseCapture();
+
+        [LibraryImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool GetCursorPos(out POINT point);
+
+        [LibraryImport("user32.dll")]
+        private static partial short GetAsyncKeyState(int vKey);
+
+        private const int VK_LBUTTON = 0x01;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT { public int X; public int Y; }
+
+        private System.Threading.Timer? _dragPollTimer;
+
         private ControlFadeAnimator? _fadeAnimator;
         private ControlFadeManager? _fadeManager;
 
@@ -44,18 +72,399 @@ namespace Narabemi.Views
                 seekBar.AddHandler(PointerReleasedEvent, OnSeekBarPointerReleased, RoutingStrategies.Tunnel);
             }
 
+            var blendModeButton = this.FindControl<Button>("BlendModeButton");
+            if (blendModeButton is not null)
+                blendModeButton.Click += OnBlendModeButtonClick;
+
             AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
             AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
             AddHandler(DragDrop.DropEvent, OnDrop);
 
+            DataContextChanged += OnDataContextChanged;
             Loaded += OnLoaded;
             Closing += OnClosing;
+            KeyDown += OnKeyDown;
+
+            var splitter = this.FindControl<Border>("VideoSplitter");
+            if (splitter is not null)
+            {
+                splitter.PointerPressed     += OnSplitterPointerPressed;
+                splitter.PointerMoved       += OnSplitterPointerMoved;
+                splitter.PointerReleased    += OnSplitterPointerReleased;
+                splitter.PointerCaptureLost += OnSplitterPointerCaptureLost;
+            }
+
+            // Window/video-area resize must re-fit the aspect-locked inner grid.
+            var videoGrid = this.FindControl<Grid>("VideoGrid");
+            if (videoGrid is not null)
+                videoGrid.SizeChanged += (_, _) => ApplyVideoLayout();
+
+            // DataContext is typically set BEFORE Initialize runs (App.axaml.cs sets it,
+            // then calls Initialize). The DataContextChanged event won't fire for that
+            // initial value, so wire up the subscriptions manually here.
+            OnDataContextChanged(this, System.EventArgs.Empty);
+
+            ApplyVideoLayout();
+        }
+
+        private void OnDataContextChanged(object? sender, System.EventArgs e)
+        {
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.PropertyChanged -= OnVmPropertyChanged;
+                vm.PropertyChanged += OnVmPropertyChanged;
+                // Re-fit InnerVideoGrid once each player's source aspect is known.
+                vm.PlayerA.VideoReady -= ApplyVideoLayout;
+                vm.PlayerA.VideoReady += ApplyVideoLayout;
+                vm.PlayerB.VideoReady -= ApplyVideoLayout;
+                vm.PlayerB.VideoReady += ApplyVideoLayout;
+                ApplyVideoLayout();
+            }
+        }
+
+        private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MainWindowViewModel.BlendMode) ||
+                e.PropertyName == nameof(MainWindowViewModel.BlendRatio))
+            {
+                ApplyVideoLayout();
+            }
+        }
+
+        // 4px wide is the smallest reliably clickable splitter at HiDPI 2.5x (≈10
+        // physical px). 1px was a clean visual but couldn't actually be clicked —
+        // PointerPressed never fired, so the drag never started. The Border now
+        // fills the entire cell with a single semi-transparent white fill, so
+        // there are no internal transparent gaps to leak the parent's black
+        // background through (which was the user's earlier complaint).
+        private const double SplitterPx = 4.0;
+        private const double DefaultAspect = 16.0 / 9.0;  // used until a video loads
+        private bool _layoutHorizontal = true;
+        private bool _layoutInitialized;
+
+        /// <summary>
+        /// Computes the InnerVideoGrid's pixel size (matched to source aspect) and the
+        /// per-cell pixel widths/heights so the cropped video fills each cell with no
+        /// internal mpv letterbox — that's what makes the wipe seam line up.
+        /// </summary>
+        private void ApplyVideoLayout()
+        {
+            var outer    = this.FindControl<Grid>("VideoGrid");
+            var inner    = this.FindControl<Grid>("InnerVideoGrid");
+            var a        = this.FindControl<VideoPlayerControl>("PlayerAView");
+            var b        = this.FindControl<VideoPlayerControl>("PlayerBView");
+            var splitter = this.FindControl<Border>("VideoSplitter");
+            if (outer is null || inner is null || a is null || b is null || splitter is null) return;
+
+            var ratio = 0.5;
+            var horizontal = true;
+            var aspect = DefaultAspect;
+            if (DataContext is MainWindowViewModel vm)
+            {
+                ratio = System.Math.Clamp(vm.BlendRatio, 0.0, 1.0);
+                horizontal = vm.BlendMode == 0;
+                // Prefer Player A's source aspect; fall back to B; else 16:9.
+                if (vm.PlayerA.SourceWidth > 0 && vm.PlayerA.SourceHeight > 0)
+                    aspect = (double)vm.PlayerA.SourceWidth / vm.PlayerA.SourceHeight;
+                else if (vm.PlayerB.SourceWidth > 0 && vm.PlayerB.SourceHeight > 0)
+                    aspect = (double)vm.PlayerB.SourceWidth / vm.PlayerB.SourceHeight;
+            }
+
+            // Outer bounds give us the available video area. SizeChanged subscription
+            // re-fires this on resize.
+            var availW = outer.Bounds.Width;
+            var availH = outer.Bounds.Height;
+            if (availW <= 0 || availH <= 0) return;
+
+            // Fit a rectangle of the source aspect into the available area, leaving
+            // room for the splitter pixel band along the split axis.
+            double dispW, dispH;
+            if (horizontal)
+            {
+                // Effective "video canvas" width must fit (W + SplitterPx) into availW.
+                var fitH = availH;
+                var fitW = fitH * aspect;
+                if (fitW + SplitterPx > availW)
+                {
+                    fitW = availW - SplitterPx;
+                    fitH = fitW / aspect;
+                }
+                dispW = fitW;
+                dispH = fitH;
+            }
+            else
+            {
+                var fitW = availW;
+                var fitH = fitW / aspect;
+                if (fitH + SplitterPx > availH)
+                {
+                    fitH = availH - SplitterPx;
+                    fitW = fitH * aspect;
+                }
+                dispW = fitW;
+                dispH = fitH;
+            }
+
+            // Per-cell pixel sizes. Clamp [0.02, 0.98] mirrors the splitter drag clamp.
+            var r = System.Math.Clamp(ratio, 0.02, 0.98);
+            var cellAFirst  = horizontal
+                ? System.Math.Round(dispW * r)
+                : System.Math.Round(dispH * r);
+            var cellAxis    = horizontal ? dispW : dispH;
+            var cellBFirst  = cellAxis - cellAFirst;   // pixel-exact complement
+
+            // Inner grid is sized to displayed-source dims plus the splitter; the outer
+            // grid centers it.
+            inner.Width  = horizontal ? (dispW + SplitterPx) : dispW;
+            inner.Height = horizontal ? dispH : (dispH + SplitterPx);
+
+            // Fast path: orientation unchanged → mutate existing definitions in place.
+            // (Splitter drag fires high-frequency BlendRatio changes; Clear/Add of
+            // ColumnDefinitions causes Avalonia to re-create cells each tick.)
+            if (_layoutInitialized && _layoutHorizontal == horizontal)
+            {
+                if (horizontal)
+                {
+                    inner.ColumnDefinitions[0].Width = new GridLength(cellAFirst, GridUnitType.Pixel);
+                    inner.ColumnDefinitions[2].Width = new GridLength(cellBFirst, GridUnitType.Pixel);
+                }
+                else
+                {
+                    inner.RowDefinitions[0].Height = new GridLength(cellAFirst, GridUnitType.Pixel);
+                    inner.RowDefinitions[2].Height = new GridLength(cellBFirst, GridUnitType.Pixel);
+                }
+                return;
+            }
+
+            // Slow path: orientation changed (or first build) — full rebuild.
+            inner.RowDefinitions.Clear();
+            inner.ColumnDefinitions.Clear();
+
+            if (horizontal)
+            {
+                inner.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(cellAFirst, GridUnitType.Pixel)));
+                inner.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(SplitterPx, GridUnitType.Pixel)));
+                inner.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(cellBFirst, GridUnitType.Pixel)));
+                Grid.SetRow(a, 0);        Grid.SetColumn(a, 0);
+                Grid.SetRow(splitter, 0); Grid.SetColumn(splitter, 1);
+                Grid.SetRow(b, 0);        Grid.SetColumn(b, 2);
+                splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast);
+            }
+            else
+            {
+                inner.RowDefinitions.Add(new RowDefinition(new GridLength(cellAFirst, GridUnitType.Pixel)));
+                inner.RowDefinitions.Add(new RowDefinition(new GridLength(SplitterPx, GridUnitType.Pixel)));
+                inner.RowDefinitions.Add(new RowDefinition(new GridLength(cellBFirst, GridUnitType.Pixel)));
+                Grid.SetRow(a, 0);        Grid.SetColumn(a, 0);
+                Grid.SetRow(splitter, 1); Grid.SetColumn(splitter, 0);
+                Grid.SetRow(b, 2);        Grid.SetColumn(b, 0);
+                splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeNorthSouth);
+            }
+
+            _layoutHorizontal = horizontal;
+            _layoutInitialized = true;
+        }
+
+        private bool _splitterDragging;
+
+        private void OnSplitterPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (DataContext is not MainWindowViewModel vm) return;
+            if (sender is not Control splitter) return;
+
+            // Double-click resets to 50/50 — common direct-manipulation idiom for sliders.
+            if (e.ClickCount == 2)
+            {
+                vm.BlendRatio = 0.5;
+                e.Handled = true;
+                return;
+            }
+
+            _splitterDragging = true;
+            e.Pointer.Capture(splitter);
+
+            // Defensive Win32 capture so any in-Avalonia pointer events still get
+            // routed correctly; the polling timer below is the real workhorse.
+            var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            if (hwnd != IntPtr.Zero) SetCapture(hwnd);
+
+            // System.Threading.Timer runs on the thread pool, so it fires regardless
+            // of how the UI dispatcher is occupied. We marshal back to the UI thread
+            // for the actual ratio update. This was switched from DispatcherTimer
+            // because the latter wasn't reliably ticking once a Win32 mouse capture
+            // entered modal-ish behavior on this hardware.
+            _dragPollTimer?.Dispose();
+            _dragPollTimer = new System.Threading.Timer(
+                _ => Avalonia.Threading.Dispatcher.UIThread.Post(OnDragPollTick,
+                        Avalonia.Threading.DispatcherPriority.Send),
+                null,
+                16, 16);
+
+            UpdateRatioFromPointer(e);
+            e.Handled = true;
+        }
+
+        private void OnDragPollTick()
+        {
+            if (!_splitterDragging) { _dragPollTimer?.Dispose(); _dragPollTimer = null; return; }
+
+            // L-button released? End the drag — PointerReleased won't fire if the
+            // cursor was over an mpv HWND when the button came up.
+            if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+            {
+                EndSplitterDrag(null);
+                return;
+            }
+
+            UpdateRatioFromCursor();
+        }
+
+        private void UpdateRatioFromCursor()
+        {
+            if (DataContext is not MainWindowViewModel vm) return;
+            var inner = this.FindControl<Grid>("InnerVideoGrid");
+            if (inner is null) return;
+            if (!GetCursorPos(out var screenPt)) return;
+
+            // Screen (physical px) → window client (DIPs) → InnerVideoGrid local DIPs.
+            var clientPoint = this.PointToClient(new PixelPoint(screenPt.X, screenPt.Y));
+            var pt = this.TranslatePoint(clientPoint, inner) ?? clientPoint;
+
+            var horizontal = vm.BlendMode == 0;
+            var size = horizontal ? inner.Bounds.Width : inner.Bounds.Height;
+            if (size <= 0) return;
+            var coord = horizontal ? pt.X : pt.Y;
+
+            const double minRatio = 0.02;
+            const double maxRatio = 0.98;
+            vm.BlendRatio = System.Math.Clamp(coord / size, minRatio, maxRatio);
+        }
+
+        private void OnSplitterPointerMoved(object? sender, PointerEventArgs e)
+        {
+            if (!_splitterDragging) return;
+            UpdateRatioFromPointer(e);
+        }
+
+        private void OnSplitterPointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            if (!_splitterDragging) return;
+            EndSplitterDrag(e.Pointer);
+            e.Handled = true;
+        }
+
+        private void OnSplitterPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+        {
+            // Alt-Tab, popup, etc. can yank Avalonia's pointer capture mid-drag. Make
+            // sure we also drop the Win32 capture so the cursor doesn't get stuck.
+            if (_splitterDragging)
+                EndSplitterDrag(e.Pointer);
+        }
+
+        private void EndSplitterDrag(IPointer? pointer)
+        {
+            _splitterDragging = false;
+            pointer?.Capture(null);
+            ReleaseCapture();
+            _dragPollTimer?.Dispose();
+            _dragPollTimer = null;
+        }
+
+        private void UpdateRatioFromPointer(PointerEventArgs e)
+        {
+            if (DataContext is not MainWindowViewModel vm) return;
+            // Compute the ratio relative to the InnerVideoGrid (the actual video canvas)
+            // rather than the outer VideoGrid, so the seam follows the cursor exactly
+            // even when the canvas is centered with letterbox padding around it.
+            var inner = this.FindControl<Grid>("InnerVideoGrid");
+            if (inner is null) return;
+
+            var p = e.GetPosition(inner);
+            var horizontal = vm.BlendMode == 0;
+            var size = horizontal ? inner.Bounds.Width : inner.Bounds.Height;
+            if (size <= 0) return;
+            var coord = horizontal ? p.X : p.Y;
+
+            // Clamp away from the very edges so the user can always grab the splitter back.
+            const double minRatio = 0.02;
+            const double maxRatio = 0.98;
+            vm.BlendRatio = System.Math.Clamp(coord / size, minRatio, maxRatio);
         }
 
         private void OnLoaded(object? sender, RoutedEventArgs e)
         {
             if (DataContext is MainWindowViewModel vm)
                 vm.LoadedCommand.Execute(null);
+        }
+
+        private void OnKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (DataContext is not MainWindowViewModel vm) return;
+
+            var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+            var ctrl  = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+
+            switch (e.Key)
+            {
+                case Key.Space:
+                    vm.PlayPauseCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Key.Escape:
+                    vm.StopCommand.Execute(null);
+                    e.Handled = true;
+                    break;
+                case Key.Left:
+                    vm.SeekRelative(shift ? -30.0 : -5.0);
+                    e.Handled = true;
+                    break;
+                case Key.Right:
+                    vm.SeekRelative(shift ? 30.0 : 5.0);
+                    e.Handled = true;
+                    break;
+                case Key.O when ctrl && !shift:
+                    // Ctrl+O → open file for primary player
+                    _ = OpenFileAsync(vm.PrimaryPlayer);
+                    e.Handled = true;
+                    break;
+                case Key.O when ctrl && shift:
+                    // Ctrl+Shift+O → open file for secondary player
+                    var secondary = vm.MainPlayerIndex == 0 ? vm.PlayerB : vm.PlayerA;
+                    _ = OpenFileAsync(secondary);
+                    e.Handled = true;
+                    break;
+            }
+        }
+
+        private async System.Threading.Tasks.Task OpenFileAsync(VideoPlayerViewModel target)
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Open video file",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Video files")
+                    {
+                        Patterns = new[] { "*.mp4", "*.mkv", "*.avi", "*.mov", "*.wmv",
+                                           "*.flv", "*.webm", "*.m4v", "*.ts", "*.mts" },
+                    },
+                    new FilePickerFileType("All files") { Patterns = new[] { "*.*" } },
+                },
+            });
+
+            if (files.Count > 0)
+            {
+                var path = files[0].TryGetLocalPath();
+                if (path is not null)
+                    target.VideoPath = path;
+            }
+        }
+
+        private void OnBlendModeButtonClick(object? sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainWindowViewModel vm)
+                vm.BlendMode = vm.BlendMode == 0 ? 1 : 0;
         }
 
         private void OnSeekBarPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -70,7 +479,7 @@ namespace Narabemi.Views
             {
                 var seekBar = this.FindControl<Slider>("SeekBar");
                 if (seekBar is not null)
-                    vm.PrimaryPlayer.SeekTo(seekBar.Value);
+                    vm.SeekBoth(seekBar.Value);
                 vm.PrimaryPlayer.EndSeek();
             }
         }
@@ -79,9 +488,7 @@ namespace Narabemi.Views
         {
             if (e.Data.Contains(DataFormats.Files))
             {
-                var overlay = this.FindControl<Border>("DropOverlay");
-                if (overlay is not null)
-                    overlay.BorderThickness = new Thickness(3);
+                DropBorder.BorderThickness = new Thickness(3);
                 e.DragEffects = DragDropEffects.Copy;
             }
             else
@@ -92,33 +499,39 @@ namespace Narabemi.Views
 
         private void OnDragLeave(object? sender, DragEventArgs e)
         {
-            var overlay = this.FindControl<Border>("DropOverlay");
-            if (overlay is not null)
-                overlay.BorderThickness = new Thickness(0);
+            DropBorder.BorderThickness = new Thickness(0);
         }
 
         private void OnDrop(object? sender, DragEventArgs e)
         {
-            var overlay = this.FindControl<Border>("DropOverlay");
-            if (overlay is not null)
-                overlay.BorderThickness = new Thickness(0);
+            DropBorder.BorderThickness = new Thickness(0);
 
             if (DataContext is not MainWindowViewModel vm)
                 return;
 
-            if (e.Data.GetFiles() is { } files)
-            {
-                var filePath = files
-                    .Select(f => f.TryGetLocalPath())
-                    .FirstOrDefault(p => p is not null && File.Exists(p));
+            if (e.Data.GetFiles() is not { } files)
+                return;
 
-                if (filePath is not null)
-                {
-                    // Route to PlayerA (left half) or PlayerB (right half) based on drop position
-                    var dropX = e.GetPosition(this).X;
-                    var target = dropX < Bounds.Width / 2 ? vm.PlayerA : vm.PlayerB;
-                    target.VideoPath = filePath;
-                }
+            var paths = files
+                .Select(f => f.TryGetLocalPath())
+                .Where(p => p is not null && File.Exists(p))
+                .ToList();
+
+            if (paths.Count == 0)
+                return;
+
+            if (paths.Count >= 2)
+            {
+                // Two files: first → PlayerA, second → PlayerB
+                vm.PlayerA.VideoPath = paths[0]!;
+                vm.PlayerB.VideoPath = paths[1]!;
+            }
+            else
+            {
+                // One file: route by drop position (left half → PlayerA, right half → PlayerB)
+                var dropX = e.GetPosition(this).X;
+                var target = dropX < Bounds.Width / 2 ? vm.PlayerA : vm.PlayerB;
+                target.VideoPath = paths[0]!;
             }
         }
 
