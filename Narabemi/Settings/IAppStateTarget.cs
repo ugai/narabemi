@@ -24,5 +24,7 @@ namespace Narabemi.Settings
     public interface IAppStatePlayerTarget
     {
         string VideoPath { get; set; }
+        double Speed { get; set; }
+        double TimeOffset { get; set; }
     }
 }

@@ -76,6 +76,10 @@ namespace Narabemi.Settings
             target.MainPlayerIndex = Current.MainPlayerIndex;
             for (int i = 0; i < Math.Min(target.StatePlayers.Count, Current.VideoPathList.Count); i++)
                 target.StatePlayers[i].VideoPath = Current.VideoPathList[i];
+            for (int i = 0; i < Math.Min(target.StatePlayers.Count, Current.PlayerSpeedList.Count); i++)
+                target.StatePlayers[i].Speed = Current.PlayerSpeedList[i];
+            for (int i = 0; i < Math.Min(target.StatePlayers.Count, Current.PlayerTimeOffsetList.Count); i++)
+                target.StatePlayers[i].TimeOffset = Current.PlayerTimeOffsetList[i];
             target.BlendBorderWidth = Current.BlendBorderWidth;
             target.BlendBorderColor = Current.BlendBorderColor;
             target.BlendRatio = Current.BlendRatio;
@@ -91,6 +95,10 @@ namespace Narabemi.Settings
             Current.MainPlayerIndex = target.MainPlayerIndex;
             Current.VideoPathList.Clear();
             Current.VideoPathList.AddRange(target.StatePlayers.Select(p => p.VideoPath));
+            Current.PlayerSpeedList.Clear();
+            Current.PlayerSpeedList.AddRange(target.StatePlayers.Select(p => p.Speed));
+            Current.PlayerTimeOffsetList.Clear();
+            Current.PlayerTimeOffsetList.AddRange(target.StatePlayers.Select(p => p.TimeOffset));
             Current.BlendBorderWidth = target.BlendBorderWidth;
             Current.BlendBorderColor = target.BlendBorderColor;
             Current.BlendRatio = target.BlendRatio;

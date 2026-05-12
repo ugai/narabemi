@@ -74,5 +74,45 @@ namespace Narabemi.Tests
             // Verify it doesn't crash
             Assert.True(true);
         }
+
+        [Fact]
+        public void Speed_DefaultIsOne()
+        {
+            var vm = CreateViewModel();
+            Assert.Equal(1.0, vm.Speed);
+        }
+
+        [Fact]
+        public void Speed_Changed_NotifiesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            string? notified = null;
+            vm.PropertyChanged += (_, e) => notified = e.PropertyName;
+
+            vm.Speed = 2.0;
+
+            Assert.Equal(nameof(vm.Speed), notified);
+            Assert.Equal(2.0, vm.Speed);
+        }
+
+        [Fact]
+        public void TimeOffset_DefaultIsZero()
+        {
+            var vm = CreateViewModel();
+            Assert.Equal(0.0, vm.TimeOffset);
+        }
+
+        [Fact]
+        public void TimeOffset_Changed_NotifiesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            string? notified = null;
+            vm.PropertyChanged += (_, e) => notified = e.PropertyName;
+
+            vm.TimeOffset = -1.5;
+
+            Assert.Equal(nameof(vm.TimeOffset), notified);
+            Assert.Equal(-1.5, vm.TimeOffset);
+        }
     }
 }

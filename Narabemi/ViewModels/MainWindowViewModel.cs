@@ -269,7 +269,7 @@ namespace Narabemi.ViewModels
             if (AutoSync)
             {
                 var secondary = MainPlayerIndex == 0 ? PlayerB : PlayerA;
-                secondary.SeekTo(seconds);
+                secondary.SeekTo(seconds + secondary.TimeOffset);
             }
         }
 
