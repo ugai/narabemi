@@ -79,7 +79,11 @@ namespace Narabemi
                 var fadeManager = Services.GetRequiredService<ControlFadeManager>();
 
                 mainWindow.DataContext = mainVm;
-                mainWindow.Initialize(fadeManager);
+                // Skip window geometry restore in headless test modes so the fixed
+                // 1280×720 XAML default is used for reproducible snapshot/bench output.
+                var savedState = (snapshotArgs.IsSnapshotMode || snapshotArgs.IsBenchMode)
+                    ? null : appStatesService.Current;
+                mainWindow.Initialize(fadeManager, savedState);
                 if (snapshotArgs.IsSnapshotMode || snapshotArgs.IsBenchMode)
                     mainVm.IsSnapshotMode = true;
                 if (snapshotArgs.IsBenchMode)

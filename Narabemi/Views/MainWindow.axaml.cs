@@ -10,6 +10,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Narabemi.Services;
+using Narabemi.Settings;
 using Narabemi.UI.Controls;
 using Narabemi.ViewModels;
 
@@ -50,7 +51,7 @@ namespace Narabemi.Views
             InitializeComponent();
         }
 
-        public void Initialize(ControlFadeManager fadeManager)
+        public void Initialize(ControlFadeManager fadeManager, AppStates? savedState = null)
         {
             _fadeManager = fadeManager;
             _fadeAnimator = new ControlFadeAnimator();
@@ -105,6 +106,17 @@ namespace Narabemi.Views
             OnDataContextChanged(this, System.EventArgs.Empty);
 
             ApplyVideoLayout();
+
+            // Restore window geometry before the window is shown so there is no
+            // visible reposition flicker. Width==0 means "first run, use XAML defaults".
+            if (savedState is { WindowWidth: > 0 })
+            {
+                Width    = savedState.WindowWidth;
+                Height   = savedState.WindowHeight;
+                Position = new PixelPoint(savedState.WindowX, savedState.WindowY);
+                if (savedState.IsWindowMaximized)
+                    WindowState = WindowState.Maximized;
+            }
         }
 
         private void OnDataContextChanged(object? sender, System.EventArgs e)
@@ -544,10 +556,26 @@ namespace Narabemi.Views
         private void OnClosing(object? sender, WindowClosingEventArgs e)
         {
             if (DataContext is MainWindowViewModel vm)
+            {
+                SaveWindowState(vm.AppStates);
                 vm.ClosedCommand.Execute(null);
+            }
 
             _fadeAnimator?.Dispose();
             _fadeManager?.Dispose();
+        }
+
+        private void SaveWindowState(AppStates? states)
+        {
+            if (states is null) return;
+            states.IsWindowMaximized = WindowState == WindowState.Maximized;
+            if (!states.IsWindowMaximized)
+            {
+                states.WindowWidth  = Width;
+                states.WindowHeight = Height;
+                states.WindowX      = Position.X;
+                states.WindowY      = Position.Y;
+            }
         }
     }
 }

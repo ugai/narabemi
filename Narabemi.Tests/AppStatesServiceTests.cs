@@ -41,6 +41,11 @@ namespace Narabemi.Tests
             service.Current.VideoPathList.AddRange(new[] { "path/a.mp4", "path/b.mp4" });
             service.Current.BlendBorderWidth = 2.5;
             service.Current.BlendBorderColor = new ColorRgba(255, 0, 128, 255);
+            service.Current.WindowWidth  = 1920;
+            service.Current.WindowHeight = 1080;
+            service.Current.WindowX      = 100;
+            service.Current.WindowY      = 200;
+            service.Current.IsWindowMaximized = true;
 
             var target = new StubTarget();
             service.ApplyTo(target);
@@ -60,6 +65,13 @@ namespace Narabemi.Tests
 
             Assert.False(service.Current.Loop);
             Assert.Equal(new ColorRgba(0, 255, 0, 255), service.Current.BlendBorderColor);
+
+            // Window state is not managed via IAppStateTarget; verify ApplyFrom does not clobber it.
+            Assert.Equal(1920, service.Current.WindowWidth);
+            Assert.Equal(1080, service.Current.WindowHeight);
+            Assert.Equal(100, service.Current.WindowX);
+            Assert.Equal(200, service.Current.WindowY);
+            Assert.True(service.Current.IsWindowMaximized);
         }
     }
 }

@@ -12,6 +12,8 @@ namespace Narabemi.ViewModels
         private readonly AppStatesService _appStatesService;
         private readonly ILogger<MainWindowViewModel> _logger;
 
+        public AppStates? AppStates => _appStatesService.Current;
+
         [ObservableProperty]
         private GlobalPlaybackState _globalPlaybackState = GlobalPlaybackState.Init;
 
