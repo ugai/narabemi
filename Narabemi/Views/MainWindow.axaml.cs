@@ -133,7 +133,13 @@ namespace Narabemi.Views
             }
         }
 
-        private const double SplitterPx = 1.0;
+        // 4px wide is the smallest reliably clickable splitter at HiDPI 2.5x (≈10
+        // physical px). 1px was a clean visual but couldn't actually be clicked —
+        // PointerPressed never fired, so the drag never started. The Border now
+        // fills the entire cell with a single semi-transparent white fill, so
+        // there are no internal transparent gaps to leak the parent's black
+        // background through (which was the user's earlier complaint).
+        private const double SplitterPx = 4.0;
         private const double DefaultAspect = 16.0 / 9.0;  // used until a video loads
         private bool _layoutHorizontal = true;
         private bool _layoutInitialized;
