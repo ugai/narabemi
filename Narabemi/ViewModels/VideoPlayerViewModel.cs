@@ -107,6 +107,8 @@ namespace Narabemi.ViewModels
         {
             _mpvInitialized = true;
             _mpvPlayer.Loop = _pendingLoop;
+            if (System.Math.Abs(Speed - 1.0) > 1e-6)
+                _mpvPlayer.Speed = System.Math.Clamp(Speed, 0.1, 100.0);
 
             _pollTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, OnPollTimer);
             _pollTimer.Start();
