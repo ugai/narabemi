@@ -15,5 +15,12 @@ namespace Narabemi.Settings
         public ColorRgba BlendBorderColor { get; set; } = ColorRgba.White;
         public double BlendRatio { get; set; } = 0.5;
         public int BlendMode { get; set; }
+
+        // Window geometry. Width==0 means "not yet saved" → use XAML defaults on first run.
+        public double WindowWidth { get; set; }
+        public double WindowHeight { get; set; }
+        public int WindowX { get; set; }
+        public int WindowY { get; set; }
+        public bool IsWindowMaximized { get; set; }
     }
 }

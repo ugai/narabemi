@@ -68,7 +68,7 @@ MainWindow (Grid: rows = "*,Auto")
 
 **Configuration:**
 - `appsettings.json` — read-only (mpv directory, etc.).
-- `appstates.json` — mutable runtime state (Loop, AutoSync, MainPlayerIndex, VideoPathList, BlendMode, BlendRatio). `BlendBorderWidth` / `BlendBorderColor` remain in the schema for forward-compat but no longer drive any UI.
+- `appstates.json` — mutable runtime state (Loop, AutoSync, MainPlayerIndex, VideoPathList, BlendMode, BlendRatio, WindowWidth/Height/X/Y, IsWindowMaximized). `BlendBorderWidth` / `BlendBorderColor` remain in the schema for forward-compat but no longer drive any UI.
 
 ## Test Modes
 
