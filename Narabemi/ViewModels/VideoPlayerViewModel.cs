@@ -48,6 +48,12 @@ namespace Narabemi.ViewModels
         private bool _isLocalVolumeMuted;
 
         [ObservableProperty]
+        private double _speed = 1.0;
+
+        [ObservableProperty]
+        private double _timeOffset = 0.0;
+
+        [ObservableProperty]
         private bool _isControlPanelVisible = true;
 
         [ObservableProperty]
@@ -131,6 +137,12 @@ namespace Narabemi.ViewModels
 
         partial void OnPositionChanged(double value) => OnPropertyChanged(nameof(TimeDisplay));
         partial void OnDurationChanged(double value) => OnPropertyChanged(nameof(TimeDisplay));
+
+        partial void OnSpeedChanged(double value)
+        {
+            if (_mpvInitialized)
+                _mpvPlayer.Speed = System.Math.Clamp(value, 0.1, 100.0);
+        }
 
         partial void OnVideoPathChanged(string value)
         {
