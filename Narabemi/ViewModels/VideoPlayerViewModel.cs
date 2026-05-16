@@ -9,12 +9,12 @@ using Narabemi.Settings;
 
 namespace Narabemi.ViewModels
 {
-    public partial class VideoPlayerViewModel : ViewModelBase, IAppStatePlayerTarget
+    public partial class VideoPlayerViewModel : ViewModelBase, IAppStatePlayerTarget, IDisposable
     {
         private readonly MpvPlayer _mpvPlayer;
         private readonly ILogger<VideoPlayerViewModel> _logger;
         private bool _mpvInitialized;
-        private DispatcherTimer? _pollTimer;
+        private bool _disposed;
 
         /// <summary>Source video pixel dimensions, populated on FileLoaded.</summary>
         public int SourceWidth { get; private set; }
@@ -79,15 +79,24 @@ namespace Narabemi.ViewModels
             _mpvPlayer = mpvPlayer;
             _logger = logger;
 
-            _mpvPlayer.PositionChanged += pos =>
-                Dispatcher.UIThread.Post(() => { if (!_isSeeking) Position = pos; });
-            _mpvPlayer.DurationChanged += dur =>
-                Dispatcher.UIThread.Post(() => Duration = dur);
-            _mpvPlayer.PauseChanged += paused =>
-                Dispatcher.UIThread.Post(() => IsPaused = paused);
-            _mpvPlayer.FileLoaded += () =>
-                Dispatcher.UIThread.Post(OnFileLoaded);
+            _mpvPlayer.PositionChanged += OnPositionChangedEvent;
+            _mpvPlayer.DurationChanged += OnDurationChangedEvent;
+            _mpvPlayer.PauseChanged += OnPauseChangedEvent;
+            _mpvPlayer.FileLoaded += OnFileLoadedEvent;
         }
+
+        // Named handlers so they can be unsubscribed in Dispose.
+        private void OnPositionChangedEvent(double pos) =>
+            Dispatcher.UIThread.Post(() => { if (!_isSeeking) Position = pos; });
+
+        private void OnDurationChangedEvent(double dur) =>
+            Dispatcher.UIThread.Post(() => Duration = dur);
+
+        private void OnPauseChangedEvent(bool paused) =>
+            Dispatcher.UIThread.Post(() => IsPaused = paused);
+
+        private void OnFileLoadedEvent() =>
+            Dispatcher.UIThread.Post(OnFileLoaded);
 
         private bool _pendingLoop;
 
@@ -110,31 +119,8 @@ namespace Narabemi.ViewModels
             if (System.Math.Abs(Speed - 1.0) > 1e-6)
                 _mpvPlayer.Speed = System.Math.Clamp(Speed, 0.1, 100.0);
 
-            _pollTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, OnPollTimer);
-            _pollTimer.Start();
-
             if (!string.IsNullOrEmpty(VideoPath) && File.Exists(VideoPath))
                 _mpvPlayer.LoadFile(VideoPath);
-        }
-
-        private void OnPollTimer(object? sender, EventArgs e)
-        {
-            if (!_mpvInitialized) return;
-
-            var dur = _mpvPlayer.Duration;
-            if (dur > 0 && Math.Abs(dur - Duration) > 0.01)
-                Duration = dur;
-
-            if (!_isSeeking)
-            {
-                var pos = _mpvPlayer.Position;
-                if (Math.Abs(pos - Position) > 0.01)
-                    Position = pos;
-            }
-
-            var paused = _mpvPlayer.IsPaused;
-            if (paused != IsPaused)
-                IsPaused = paused;
         }
 
         partial void OnPositionChanged(double value) => OnPropertyChanged(nameof(TimeDisplay));
@@ -273,6 +259,19 @@ namespace Narabemi.ViewModels
         private void OpenFile()
         {
             // File dialog will be handled by the View (code-behind) since it needs window access
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            // Unsubscribe from MpvPlayer events to prevent callbacks into a torn-down VM
+            // after shutdown begins.
+            _mpvPlayer.PositionChanged -= OnPositionChangedEvent;
+            _mpvPlayer.DurationChanged -= OnDurationChangedEvent;
+            _mpvPlayer.PauseChanged -= OnPauseChangedEvent;
+            _mpvPlayer.FileLoaded -= OnFileLoadedEvent;
         }
     }
 }
