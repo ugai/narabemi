@@ -44,9 +44,6 @@ namespace Narabemi.ViewModels
         [ObservableProperty]
         private bool _isMasterVolumeMuted;
 
-        [ObservableProperty]
-        private bool _isControlPanelVisible = true;
-
         public VideoPlayerViewModel PlayerA { get; }
         public VideoPlayerViewModel PlayerB { get; }
 
