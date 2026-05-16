@@ -13,6 +13,10 @@ namespace Narabemi.Services
 {
     public partial class ControlFadeManager : ObservableObject, IDisposable, IRecipient<ControlsMouseMoveMessage>, IRecipient<ControlsVisibilityMessage>
     {
+        // Cached cursor — Cursor implements IDisposable; allocating one per fade tick
+        // would leak the previous instance.
+        private static readonly Cursor CursorNone = new(StandardCursorType.None);
+
         public bool IsVisible { get; private set; } = true;
 
         private readonly TimeSpan _hideStartDuration = TimeSpan.FromMilliseconds(1000);
@@ -82,7 +86,7 @@ namespace Narabemi.Services
                     }
                     else
                     {
-                        _mouseMoveTargets.ForEach(v => v.Cursor = new Cursor(StandardCursorType.None));
+                        _mouseMoveTargets.ForEach(v => v.Cursor = CursorNone);
                     }
 
                     IsVisible = newValue;
