@@ -71,10 +71,33 @@ dotnet run --project Narabemi/Narabemi.csproj -- --bench 15 \
 dotnet run --project Narabemi/Narabemi.csproj -- --snapshot --seek 5 \
     --video-a A.mp4 --video-b B.mp4 -o snapshot.png
 
+# Snapshot with a pinned wipe position and seam verification (for CI)
+dotnet run --project Narabemi/Narabemi.csproj -- --snapshot --seek 5 \
+    --video-a A.mp4 --video-b B.mp4 -o snapshot.png \
+    --set-ratio 0.5 --set-mode horizontal --verify-wipe
+
 # Architectural probe (skips the main UI, useful for raw rendering experiments)
 dotnet run --project Narabemi/Narabemi.csproj -- --probe-native 15 \
     --video-a A.mp4 [--video-b B.mp4]
 ```
+
+### Snapshot flags
+
+| Flag | Purpose |
+|---|---|
+| `--set-ratio <0..1>` | Override the wipe position (BlendRatio) for this run. |
+| `--set-mode <horizontal\|vertical\|h\|v\|0\|1>` | Override the split direction (BlendMode) for this run. |
+| `--verify-wipe` | After capture, diff the pixel columns at the wipe seam and exit with code 4 if the seam is mis-stitched. Intended for CI regression checks. |
+
+### Snapshot exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success. |
+| 1 | Unhandled exception during capture. |
+| 2 | Timeout (video did not load or settle within 30 s). |
+| 3 | Captured frame dimensions do not match expected crop after 5 attempts. |
+| 4 | `--verify-wipe` seam-diff check failed. |
 
 ## Limitations
 

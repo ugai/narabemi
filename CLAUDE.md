@@ -80,6 +80,28 @@ MainWindow (Grid: rows = "*,Auto")
 
 All test modes skip `appstates.json` write on exit so they don't clobber user state.
 
+### Snapshot mode additional flags
+
+These flags apply only when `--snapshot` is active.
+
+| Flag | Type | Default | Purpose |
+|---|---|---|---|
+| `--set-ratio <0..1>` | `double` | (uses saved `BlendRatio`) | Overrides `BlendRatio` before the run, allowing CI to pin an exact wipe position without editing saved state. |
+| `--set-mode <horizontal\|vertical\|h\|v\|0\|1>` | string | (uses saved `BlendMode`) | Overrides `BlendMode` before the run. `0`/`h`/`horizontal` = side-by-side; `1`/`v`/`vertical` = stacked. |
+| `--verify-wipe` | flag | off | After dual-player capture succeeds, runs a pixel-diff across the wipe seam (A's last cropped column vs B's first). A large diff signals a mis-stitched wipe. Intended for autonomous CI regression tests. |
+
+### Snapshot exit codes
+
+`SnapshotRunner.Shutdown` passes one of the following codes to the process exit:
+
+| Code | Meaning |
+|---|---|
+| 0 | Success (and `--verify-wipe` passed, if requested). |
+| 1 | Unhandled exception during capture. |
+| 2 | Timeout — video did not load or settle within 30 s. |
+| 3 | Crop-dimension verification failed after 5 attempts (captured frame dimensions do not match expected crop). |
+| 4 | `--verify-wipe` seam-diff check failed (wipe appears mis-stitched). |
+
 ## Code Style
 
 - Warnings treated as errors in Debug and Release.
