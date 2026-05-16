@@ -111,9 +111,18 @@ namespace Narabemi.Views
             // visible reposition flicker. Width==0 means "first run, use XAML defaults".
             if (savedState is { WindowWidth: > 0 })
             {
-                Width    = savedState.WindowWidth;
-                Height   = savedState.WindowHeight;
-                Position = new PixelPoint(savedState.WindowX, savedState.WindowY);
+                Width  = savedState.WindowWidth;
+                Height = savedState.WindowHeight;
+
+                // Only restore the saved position when enough of the window rect
+                // intersects the current display configuration. If the user unplugged
+                // a secondary monitor between sessions the window would otherwise open
+                // fully offscreen with no UI affordance to move it back.
+                var savedRect = new PixelRect(savedState.WindowX, savedState.WindowY,
+                    (int)savedState.WindowWidth, (int)savedState.WindowHeight);
+                if (IsRectSufficientlyOnScreen(savedRect))
+                    Position = new PixelPoint(savedState.WindowX, savedState.WindowY);
+
                 if (savedState.IsWindowMaximized)
                     WindowState = WindowState.Maximized;
             }
@@ -570,6 +579,36 @@ namespace Narabemi.Views
                 states.WindowX      = Position.X;
                 states.WindowY      = Position.Y;
             }
+        }
+
+        /// <summary>
+        /// Returns true when at least 25 % of <paramref name="rect"/> falls inside
+        /// the union of all current screen working areas. Below that threshold the
+        /// window is considered effectively offscreen (e.g. a secondary monitor was
+        /// disconnected) and the caller should fall back to a default position.
+        /// </summary>
+        private bool IsRectSufficientlyOnScreen(PixelRect rect)
+        {
+            const double MinVisibleFraction = 0.25;
+
+            var screens = Screens.All;
+            if (screens is null || screens.Count == 0)
+                return true; // cannot determine — assume on-screen
+
+            long intersectionArea = 0;
+            foreach (var screen in screens)
+            {
+                var wa = screen.WorkingArea;
+                var ix = Math.Max(rect.X, wa.X);
+                var iy = Math.Max(rect.Y, wa.Y);
+                var iw = Math.Min(rect.Right, wa.Right) - ix;
+                var ih = Math.Min(rect.Bottom, wa.Bottom) - iy;
+                if (iw > 0 && ih > 0)
+                    intersectionArea += (long)iw * ih;
+            }
+
+            var rectArea = (long)rect.Width * rect.Height;
+            return rectArea > 0 && intersectionArea >= (long)(rectArea * MinVisibleFraction);
         }
     }
 }
