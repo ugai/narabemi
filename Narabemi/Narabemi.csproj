@@ -29,7 +29,12 @@
     <PackageReference Include="CommunityToolkit.Diagnostics" Version="8.2.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="ZLogger" Version="2.5.7" />
-    <PackageReference Include="Tmds.DBus.Protocol" Version="0.92.0" />
+    <!-- Version override only: pins the transitive Tmds.DBus.Protocol dep (from Avalonia.Desktop)
+         to a vulnerability-free version. ExcludeAssets ensures nothing from this package is
+         compiled in or copied to output. -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.92.0">
+      <ExcludeAssets>All</ExcludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
