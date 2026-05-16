@@ -500,7 +500,7 @@ namespace Narabemi.Views
         {
             if (e.Data.Contains(DataFormats.Files))
             {
-                DropBorder.BorderThickness = new Thickness(3);
+                DropOverlay.IsVisible = true;
                 e.DragEffects = DragDropEffects.Copy;
             }
             else
@@ -511,12 +511,12 @@ namespace Narabemi.Views
 
         private void OnDragLeave(object? sender, DragEventArgs e)
         {
-            DropBorder.BorderThickness = new Thickness(0);
+            DropOverlay.IsVisible = false;
         }
 
         private void OnDrop(object? sender, DragEventArgs e)
         {
-            DropBorder.BorderThickness = new Thickness(0);
+            DropOverlay.IsVisible = false;
 
             if (DataContext is not MainWindowViewModel vm)
                 return;

@@ -51,12 +51,24 @@
                 <controls:VideoPlayerControl x:Name="PlayerBView"
                                              DataContext="{Binding PlayerB}" />
             </Grid>
-            <!-- Drop feedback overlay: non-interactive, shows a blue border on DragEnter.
-                 Declared last so it renders on top of InnerVideoGrid. -->
-            <Border x:Name="DropBorder"
+            <!-- Drop feedback overlay: non-interactive, shown on DragEnter with a
+                 semi-transparent tinted background and drop-hint text so users know
+                 where the file will land. Declared last so it renders on top of
+                 InnerVideoGrid. IsVisible is toggled in code-behind. -->
+            <Border x:Name="DropOverlay"
+                    Background="#AA001833"
                     BorderBrush="#4488FF"
-                    BorderThickness="0"
-                    IsHitTestVisible="False" />
+                    BorderThickness="4"
+                    IsHitTestVisible="False"
+                    IsVisible="False">
+                <TextBlock HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextAlignment="Center"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           Foreground="White"
+                           Text="Drop video here&#10;Left half → Player A  |  Right half → Player B" />
+            </Border>
         </Grid>
 
         <!-- Control panel -->
