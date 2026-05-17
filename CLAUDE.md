@@ -49,7 +49,7 @@ MainWindow (Grid: rows = "*,Auto")
 
 `ApplyVideoLayout` in [MainWindow.axaml.cs](Narabemi/Views/MainWindow.axaml.cs) clears `RowDefinitions` / `ColumnDefinitions` and rebuilds them from `BlendMode` (0=Horizontal, 1=Vertical) and `BlendRatio` ∈ [0,1]. Subscribed to `MainWindowViewModel.PropertyChanged`.
 
-**MVVM with DI.** `Microsoft.Extensions.Hosting` (Generic Host) for the DI container; `CommunityToolkit.Mvvm` for `[ObservableProperty]`, `[RelayCommand]`. Decoupled cross-component messaging via `WeakReferenceMessenger` and message types in `Messages/`.
+**MVVM with DI.** `Microsoft.Extensions.Hosting` (Generic Host) for the DI container; `CommunityToolkit.Mvvm` for `[ObservableProperty]`, `[RelayCommand]`. Decoupled cross-component messaging via `WeakReferenceMessenger`; message types (`ControlsMouseMoveMessage`, `ControlsVisibilityMessage`) are defined inline in `Services/ControlFadeManager.cs`.
 
 **Key components:**
 - `Mpv/MpvApi.cs` — `LibraryImport` P/Invoke layer for libmpv (lifecycle, properties, events).
