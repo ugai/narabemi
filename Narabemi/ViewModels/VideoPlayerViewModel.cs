@@ -17,6 +17,12 @@ namespace Narabemi.ViewModels
         private bool _disposed;
         private IntPtr _boundHwnd;
 
+        private const double MinSpeed  = 0.1;
+        private const double MaxSpeed  = 100.0;
+        private const double MinVolume = 0.0;
+        // mpv volume max of 130 intentionally exceeds 100 to allow software amplification.
+        private const double MaxVolume = 130.0;
+
         /// <summary>Source video pixel dimensions, populated on FileLoaded.</summary>
         public int SourceWidth { get; private set; }
         public int SourceHeight { get; private set; }
@@ -135,7 +141,7 @@ namespace Narabemi.ViewModels
             _mpvInitialized = true;
             _mpvPlayer.Loop = _pendingLoop;
             if (System.Math.Abs(Speed - 1.0) > 1e-6)
-                _mpvPlayer.Speed = System.Math.Clamp(Speed, 0.1, 100.0);
+                _mpvPlayer.Speed = System.Math.Clamp(Speed, MinSpeed, MaxSpeed);
 
             if (!string.IsNullOrEmpty(VideoPath) && File.Exists(VideoPath))
                 _mpvPlayer.LoadFile(VideoPath);
@@ -147,7 +153,7 @@ namespace Narabemi.ViewModels
         partial void OnSpeedChanged(double value)
         {
             if (_mpvInitialized)
-                _mpvPlayer.Speed = System.Math.Clamp(value, 0.1, 100.0);
+                _mpvPlayer.Speed = System.Math.Clamp(value, MinSpeed, MaxSpeed);
         }
 
         partial void OnVideoPathChanged(string value)
@@ -229,7 +235,7 @@ namespace Narabemi.ViewModels
             _mpvPlayer.IsMuted = muted;
 
             var volume = LocalVolume * masterVolume * 100.0;
-            _mpvPlayer.Volume = Math.Clamp(volume, 0.0, 130.0);
+            _mpvPlayer.Volume = Math.Clamp(volume, MinVolume, MaxVolume);
         }
 
         partial void OnLocalVolumeChanged(double value)
