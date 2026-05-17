@@ -16,10 +16,21 @@ namespace Narabemi.Settings
         /// </summary>
         public static ColorRgba FromHex(string hex)
         {
+            TryFromHex(hex, out var result);
+            return result;
+        }
+
+        /// <summary>
+        /// Tries to parse a CSS-style hex string: <c>#RRGGBB</c> or <c>#AARRGGBB</c> (WPF format).
+        /// Returns <see langword="true"/> on success; <see langword="false"/> on unrecognized format,
+        /// setting <paramref name="result"/> to <see cref="White"/>.
+        /// </summary>
+        public static bool TryFromHex(string hex, out ColorRgba result)
+        {
             var s = hex.AsSpan().TrimStart('#');
             try
             {
-                return s.Length switch
+                result = s.Length switch
                 {
                     6 => new ColorRgba(
                         Convert.ToByte(s[0..2].ToString(), 16),
@@ -33,10 +44,12 @@ namespace Narabemi.Settings
                         Convert.ToByte(s[0..2].ToString(), 16)),
                     _ => White,
                 };
+                return s.Length is 6 or 8;
             }
             catch (FormatException)
             {
-                return White;
+                result = White;
+                return false;
             }
         }
 
