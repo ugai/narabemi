@@ -50,6 +50,13 @@ namespace Narabemi.Views
 
         private readonly ILogger<MainWindow> _logger;
 
+        // Cached once in Initialize; avoids visual-tree walks on every ApplyVideoLayout call.
+        private Grid? _videoGrid;
+        private Grid? _innerVideoGrid;
+        private VideoPlayerControl? _playerAView;
+        private VideoPlayerControl? _playerBView;
+        private Border? _videoSplitter;
+
         // Parameterless ctor kept for the Avalonia designer; chains to the logger ctor
         // so InitializeComponent() is always called exactly once.
         public MainWindow() : this(NullLogger<MainWindow>.Instance) { }
@@ -108,6 +115,13 @@ namespace Narabemi.Views
             var videoGrid = this.FindControl<Grid>("VideoGrid");
             if (videoGrid is not null)
                 videoGrid.SizeChanged += (_, _) => ApplyVideoLayout();
+
+            // Cache control references so ApplyVideoLayout avoids repeated visual-tree walks.
+            _videoGrid    = videoGrid;
+            _innerVideoGrid = this.FindControl<Grid>("InnerVideoGrid");
+            _playerAView  = this.FindControl<VideoPlayerControl>("PlayerAView");
+            _playerBView  = this.FindControl<VideoPlayerControl>("PlayerBView");
+            _videoSplitter = splitter;
 
             // DataContext is typically set BEFORE Initialize runs (App.axaml.cs sets it,
             // then calls Initialize). The DataContextChanged event won't fire for that
@@ -179,11 +193,11 @@ namespace Narabemi.Views
         /// </summary>
         private void ApplyVideoLayout()
         {
-            var outer    = this.FindControl<Grid>("VideoGrid");
-            var inner    = this.FindControl<Grid>("InnerVideoGrid");
-            var a        = this.FindControl<VideoPlayerControl>("PlayerAView");
-            var b        = this.FindControl<VideoPlayerControl>("PlayerBView");
-            var splitter = this.FindControl<Border>("VideoSplitter");
+            var outer    = _videoGrid;
+            var inner    = _innerVideoGrid;
+            var a        = _playerAView;
+            var b        = _playerBView;
+            var splitter = _videoSplitter;
             if (outer is null || inner is null || a is null || b is null || splitter is null) return;
 
             var ratio = 0.5;
@@ -352,7 +366,7 @@ namespace Narabemi.Views
         private void UpdateRatioFromCursor()
         {
             if (DataContext is not MainWindowViewModel vm) return;
-            var inner = this.FindControl<Grid>("InnerVideoGrid");
+            var inner = _innerVideoGrid;
             if (inner is null) return;
             if (!GetCursorPos(out var screenPt)) return;
 
@@ -406,7 +420,7 @@ namespace Narabemi.Views
             // Compute the ratio relative to the InnerVideoGrid (the actual video canvas)
             // rather than the outer VideoGrid, so the seam follows the cursor exactly
             // even when the canvas is centered with letterbox padding around it.
-            var inner = this.FindControl<Grid>("InnerVideoGrid");
+            var inner = _innerVideoGrid;
             if (inner is null) return;
 
             var p = e.GetPosition(inner);
