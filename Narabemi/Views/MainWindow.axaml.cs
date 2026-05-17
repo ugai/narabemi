@@ -2,7 +2,6 @@ using System;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -20,33 +19,9 @@ namespace Narabemi.Views
 {
     public partial class MainWindow : Window
     {
-        // SetCapture alone doesn't help with NativeControlHost airspace — the cursor
-        // crossing into a child HWND still loses the Avalonia drag. Workaround: poll
-        // the cursor position and mouse-button state directly via Win32 during drag,
-        // so we don't depend on Avalonia receiving any pointer event at all.
-        [LibraryImport("user32.dll")]
-        private static partial IntPtr SetCapture(IntPtr hwnd);
-
-        [LibraryImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static partial bool ReleaseCapture();
-
-        [LibraryImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static partial bool GetCursorPos(out POINT point);
-
-        [LibraryImport("user32.dll")]
-        private static partial short GetAsyncKeyState(int vKey);
-
-        private const int VK_LBUTTON = 0x01;
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct POINT { public int X; public int Y; }
-
-        private System.Threading.Timer? _dragPollTimer;
-
         private ControlFadeAnimator? _fadeAnimator;
         private ControlFadeManager? _fadeManager;
+        private SplitterDragController? _splitterDragController;
 
         private readonly ILogger<MainWindow> _logger;
 
@@ -102,7 +77,36 @@ namespace Narabemi.Views
             Closing += OnClosing;
             KeyDown += OnKeyDown;
 
+            // Cache control references so ApplyVideoLayout avoids repeated visual-tree walks.
+            var videoGrid = this.FindControl<Grid>("VideoGrid");
+            var innerVideoGrid = this.FindControl<Grid>("InnerVideoGrid");
+            _videoGrid      = videoGrid;
+            _innerVideoGrid = innerVideoGrid;
+            _playerAView    = this.FindControl<VideoPlayerControl>("PlayerAView");
+            _playerBView    = this.FindControl<VideoPlayerControl>("PlayerBView");
+
             var splitter = this.FindControl<Border>("VideoSplitter");
+            _videoSplitter = splitter;
+
+            // Wire up the splitter drag controller. It owns the Win32 polling timer
+            // and all P/Invoke calls; MainWindow only handles the Avalonia pointer events.
+            _splitterDragController = new SplitterDragController(
+                getWindowHandle:  () => TryGetPlatformHandle()?.Handle ?? IntPtr.Zero,
+                getViewModel:     () => DataContext as MainWindowViewModel,
+                getWindowVisual:  () => this,
+                getInnerGrid:     () => _innerVideoGrid);
+            _splitterDragController.RatioChanged += ratio =>
+            {
+                if (DataContext is MainWindowViewModel vm)
+                    vm.BlendRatio = ratio;
+            };
+            _splitterDragController.DragEnded += () =>
+            {
+                // Button released outside Avalonia's view (over an mpv HWND) —
+                // release Avalonia pointer capture and stop the Win32 capture/timer.
+                _splitterDragController.EndDrag();
+            };
+
             if (splitter is not null)
             {
                 splitter.PointerPressed     += OnSplitterPointerPressed;
@@ -112,16 +116,8 @@ namespace Narabemi.Views
             }
 
             // Window/video-area resize must re-fit the aspect-locked inner grid.
-            var videoGrid = this.FindControl<Grid>("VideoGrid");
             if (videoGrid is not null)
                 videoGrid.SizeChanged += (_, _) => ApplyVideoLayout();
-
-            // Cache control references so ApplyVideoLayout avoids repeated visual-tree walks.
-            _videoGrid    = videoGrid;
-            _innerVideoGrid = this.FindControl<Grid>("InnerVideoGrid");
-            _playerAView  = this.FindControl<VideoPlayerControl>("PlayerAView");
-            _playerBView  = this.FindControl<VideoPlayerControl>("PlayerBView");
-            _videoSplitter = splitter;
 
             // DataContext is typically set BEFORE Initialize runs (App.axaml.cs sets it,
             // then calls Initialize). The DataContextChanged event won't fire for that
@@ -316,8 +312,6 @@ namespace Narabemi.Views
             _layoutInitialized = true;
         }
 
-        private bool _splitterDragging;
-
         private void OnSplitterPointerPressed(object? sender, PointerPressedEventArgs e)
         {
             if (DataContext is not MainWindowViewModel vm) return;
@@ -331,74 +325,21 @@ namespace Narabemi.Views
                 return;
             }
 
-            _splitterDragging = true;
             e.Pointer.Capture(splitter);
-
-            // Defensive Win32 capture so any in-Avalonia pointer events still get
-            // routed correctly; the polling timer below is the real workhorse.
-            var hwnd = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-            if (hwnd != IntPtr.Zero) SetCapture(hwnd);
-
-            // System.Threading.Timer runs on the thread pool, so it fires regardless
-            // of how the UI dispatcher is occupied. We marshal back to the UI thread
-            // for the actual ratio update. This was switched from DispatcherTimer
-            // because the latter wasn't reliably ticking once a Win32 mouse capture
-            // entered modal-ish behavior on this hardware.
-            _dragPollTimer?.Dispose();
-            _dragPollTimer = new System.Threading.Timer(
-                _ => Avalonia.Threading.Dispatcher.UIThread.Post(OnDragPollTick,
-                        Avalonia.Threading.DispatcherPriority.Send),
-                null,
-                16, 16);
-
-            UpdateRatioFromPointer(e);
+            _splitterDragController?.BeginDrag();
+            _splitterDragController?.UpdateFromPointer(e);
             e.Handled = true;
-        }
-
-        private void OnDragPollTick()
-        {
-            if (!_splitterDragging) { _dragPollTimer?.Dispose(); _dragPollTimer = null; return; }
-
-            // L-button released? End the drag — PointerReleased won't fire if the
-            // cursor was over an mpv HWND when the button came up.
-            if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
-            {
-                EndSplitterDrag(null);
-                return;
-            }
-
-            UpdateRatioFromCursor();
-        }
-
-        private void UpdateRatioFromCursor()
-        {
-            if (DataContext is not MainWindowViewModel vm) return;
-            var inner = _innerVideoGrid;
-            if (inner is null) return;
-            if (!GetCursorPos(out var screenPt)) return;
-
-            // Screen (physical px) → window client (DIPs) → InnerVideoGrid local DIPs.
-            var clientPoint = this.PointToClient(new PixelPoint(screenPt.X, screenPt.Y));
-            var pt = this.TranslatePoint(clientPoint, inner) ?? clientPoint;
-
-            var horizontal = vm.BlendMode == 0;
-            var size = horizontal ? inner.Bounds.Width : inner.Bounds.Height;
-            if (size <= 0) return;
-            var coord = horizontal ? pt.X : pt.Y;
-
-            vm.BlendRatio = System.Math.Clamp(coord / size, MainWindowViewModel.BlendRatioMin, MainWindowViewModel.BlendRatioMax);
         }
 
         private void OnSplitterPointerMoved(object? sender, PointerEventArgs e)
         {
-            if (!_splitterDragging) return;
-            UpdateRatioFromPointer(e);
+            _splitterDragController?.UpdateFromPointer(e, requireDragging: true);
         }
 
         private void OnSplitterPointerReleased(object? sender, PointerReleasedEventArgs e)
         {
-            if (!_splitterDragging) return;
-            EndSplitterDrag(e.Pointer);
+            e.Pointer.Capture(null);
+            _splitterDragController?.EndDrag();
             e.Handled = true;
         }
 
@@ -406,36 +347,7 @@ namespace Narabemi.Views
         {
             // Alt-Tab, popup, etc. can yank Avalonia's pointer capture mid-drag. Make
             // sure we also drop the Win32 capture so the cursor doesn't get stuck.
-            if (_splitterDragging)
-                EndSplitterDrag(e.Pointer);
-        }
-
-        private void EndSplitterDrag(IPointer? pointer)
-        {
-            _splitterDragging = false;
-            pointer?.Capture(null);
-            ReleaseCapture();
-            _dragPollTimer?.Dispose();
-            _dragPollTimer = null;
-        }
-
-        private void UpdateRatioFromPointer(PointerEventArgs e)
-        {
-            if (DataContext is not MainWindowViewModel vm) return;
-            // Compute the ratio relative to the InnerVideoGrid (the actual video canvas)
-            // rather than the outer VideoGrid, so the seam follows the cursor exactly
-            // even when the canvas is centered with letterbox padding around it.
-            var inner = _innerVideoGrid;
-            if (inner is null) return;
-
-            var p = e.GetPosition(inner);
-            var horizontal = vm.BlendMode == 0;
-            var size = horizontal ? inner.Bounds.Width : inner.Bounds.Height;
-            if (size <= 0) return;
-            var coord = horizontal ? p.X : p.Y;
-
-            // Clamp away from the very edges so the user can always grab the splitter back.
-            vm.BlendRatio = System.Math.Clamp(coord / size, MainWindowViewModel.BlendRatioMin, MainWindowViewModel.BlendRatioMax);
+            _splitterDragController?.EndDrag();
         }
 
         private void OnLoaded(object? sender, RoutedEventArgs e)
@@ -554,6 +466,7 @@ namespace Narabemi.Views
                 _logger.LogError(ex, "File picker failed");
             }
         }
+
         private void OnBlendModeButtonClick(object? sender, RoutedEventArgs e)
         {
             if (DataContext is MainWindowViewModel vm)
@@ -636,6 +549,7 @@ namespace Narabemi.Views
                 vm.ClosedCommand.Execute(null);
             }
 
+            _splitterDragController?.Dispose();
             _fadeAnimator?.Dispose();
             _fadeManager?.Dispose();
         }
