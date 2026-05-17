@@ -130,5 +130,103 @@ namespace Narabemi.Tests
             var ex = Record.Exception(() => vm.SeekBoth(15.0));
             Assert.Null(ex);
         }
+
+        // --- Property change notifications (Issue #86) ---
+
+        private static List<string> CollectPropertyChanges(MainWindowViewModel vm, System.Action action)
+        {
+            var names = new List<string>();
+            void Handler(object? sender, PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName is not null)
+                    names.Add(e.PropertyName);
+            }
+
+            ((INotifyPropertyChanged)vm).PropertyChanged += Handler;
+            action();
+            ((INotifyPropertyChanged)vm).PropertyChanged -= Handler;
+            return names;
+        }
+
+        [Fact]
+        public void BlendRatio_RaisesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            var raised = CollectPropertyChanges(vm, () => vm.BlendRatio = 0.7);
+            Assert.Contains(nameof(vm.BlendRatio), raised);
+        }
+
+        [Fact]
+        public void BlendMode_RaisesPropertyChanged_ForBlendModeAndBlendModeLabel()
+        {
+            var vm = CreateViewModel();
+            var raised = CollectPropertyChanges(vm, () => vm.BlendMode = 1);
+            Assert.Contains(nameof(vm.BlendMode), raised);
+            Assert.Contains(nameof(vm.BlendModeLabel), raised);
+        }
+
+        [Fact]
+        public void Loop_RaisesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            var raised = CollectPropertyChanges(vm, () => vm.Loop = true);
+            Assert.Contains(nameof(vm.Loop), raised);
+        }
+
+        [Fact]
+        public void AutoSync_RaisesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            var raised = CollectPropertyChanges(vm, () => vm.AutoSync = false);
+            Assert.Contains(nameof(vm.AutoSync), raised);
+        }
+
+        [Fact]
+        public void MasterVolume_RaisesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            var raised = CollectPropertyChanges(vm, () => vm.MasterVolume = 0.5);
+            Assert.Contains(nameof(vm.MasterVolume), raised);
+        }
+
+        [Fact]
+        public void IsMasterVolumeMuted_RaisesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            var raised = CollectPropertyChanges(vm, () => vm.IsMasterVolumeMuted = true);
+            Assert.Contains(nameof(vm.IsMasterVolumeMuted), raised);
+        }
+
+        [Fact]
+        public void MainPlayerIndex_RaisesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            var raised = CollectPropertyChanges(vm, () => vm.MainPlayerIndex = 1);
+            Assert.Contains(nameof(vm.MainPlayerIndex), raised);
+        }
+
+        [Fact]
+        public void GlobalPlaybackState_RaisesPropertyChanged()
+        {
+            var vm = CreateViewModel();
+            var raised = CollectPropertyChanges(vm, () => vm.GlobalPlaybackState = GlobalPlaybackState.Pause);
+            Assert.Contains(nameof(vm.GlobalPlaybackState), raised);
+        }
+
+        [Fact]
+        public void BlendModeLabel_ReturnsHorizontal_WhenBlendModeIsZero()
+        {
+            var vm = CreateViewModel();
+            vm.BlendMode = 0;
+            Assert.Equal("Horizontal", vm.BlendModeLabel);
+        }
+
+        [Fact]
+        public void BlendModeLabel_ReturnsVertical_WhenBlendModeIsOne()
+        {
+            var vm = CreateViewModel();
+            vm.BlendMode = 1;
+            Assert.Equal("Vertical", vm.BlendModeLabel);
+        }
     }
 }
