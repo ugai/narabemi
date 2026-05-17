@@ -66,7 +66,14 @@ namespace Narabemi.Settings
             Guard.IsNotNull(Current);
 
             var jsonText = JsonSerializer.Serialize(Current, _opt);
-            File.WriteAllText(FilePath, jsonText);
+            try
+            {
+                File.WriteAllText(FilePath, jsonText);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "Failed to save app state to {FilePath}", FilePath);
+            }
         }
 
         public void ApplyTo(IAppStateTarget target)
