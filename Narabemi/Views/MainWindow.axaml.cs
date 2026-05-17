@@ -256,8 +256,8 @@ namespace Narabemi.Views
                 dispH = fitH;
             }
 
-            // Per-cell pixel sizes. Clamp [0.02, 0.98] mirrors the splitter drag clamp.
-            var r = System.Math.Clamp(ratio, 0.02, 0.98);
+            // Per-cell pixel sizes. Clamp mirrors the splitter drag clamp.
+            var r = System.Math.Clamp(ratio, MainWindowViewModel.BlendRatioMin, MainWindowViewModel.BlendRatioMax);
             var cellAFirst  = horizontal
                 ? System.Math.Round(dispW * r)
                 : System.Math.Round(dispH * r);
@@ -386,9 +386,7 @@ namespace Narabemi.Views
             if (size <= 0) return;
             var coord = horizontal ? pt.X : pt.Y;
 
-            const double minRatio = 0.02;
-            const double maxRatio = 0.98;
-            vm.BlendRatio = System.Math.Clamp(coord / size, minRatio, maxRatio);
+            vm.BlendRatio = System.Math.Clamp(coord / size, MainWindowViewModel.BlendRatioMin, MainWindowViewModel.BlendRatioMax);
         }
 
         private void OnSplitterPointerMoved(object? sender, PointerEventArgs e)
@@ -437,9 +435,7 @@ namespace Narabemi.Views
             var coord = horizontal ? p.X : p.Y;
 
             // Clamp away from the very edges so the user can always grab the splitter back.
-            const double minRatio = 0.02;
-            const double maxRatio = 0.98;
-            vm.BlendRatio = System.Math.Clamp(coord / size, minRatio, maxRatio);
+            vm.BlendRatio = System.Math.Clamp(coord / size, MainWindowViewModel.BlendRatioMin, MainWindowViewModel.BlendRatioMax);
         }
 
         private void OnLoaded(object? sender, RoutedEventArgs e)

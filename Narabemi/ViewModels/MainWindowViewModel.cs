@@ -26,6 +26,11 @@ namespace Narabemi.ViewModels
         [ObservableProperty]
         private int _mainPlayerIndex;
 
+        // Clamp bounds shared with MainWindow splitter drag; keep both ends away from 0/1
+        // so a zero-dimension crop is never passed to mpv.
+        public const double BlendRatioMin = 0.02;
+        public const double BlendRatioMax = 0.98;
+
         [ObservableProperty]
         private double _blendRatio = 0.5;
 
@@ -220,7 +225,7 @@ namespace Narabemi.ViewModels
             // Clamp matches MainWindow.axaml.cs:UpdateRatioFromPointer; load-bearing here
             // because programmatic setters (state restore, slider) bypass the splitter
             // drag clamp. A 0-dimension crop would be rejected by mpv.
-            var r = Math.Clamp(BlendRatio, 0.02, 0.98);
+            var r = Math.Clamp(BlendRatio, BlendRatioMin, BlendRatioMax);
 
             string crop;
             if (BlendMode == 0)              // Horizontal: split on X
