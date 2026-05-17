@@ -15,13 +15,22 @@ namespace Narabemi.Services
     {
         public bool IsVisible { get; private set; } = true;
 
-        private readonly TimeSpan _hideStartDuration = TimeSpan.FromMilliseconds(1000);
+        private const long HideStartDurationMs = 1000;
+        private const long ThrottleMs = 50;
+
+        // Reused singleton — ControlsMouseMoveMessage carries no data.
+        private static readonly ControlsMouseMoveMessage _sharedMoveMessage = new();
 
         private readonly List<Control> _mouseMoveTargets = new();
         private readonly List<Control> _mouseHoverTargets = new();
         private readonly ILogger _logger;
 
-        private DateTime _lastMouseMoveTime = DateTime.UtcNow;
+        // TickCount64 (ms) of the last accepted pointer-move message sent to the messenger.
+        private long _lastSendTickCount = Environment.TickCount64;
+
+        // TickCount64 (ms) of the last received ControlsMouseMoveMessage.
+        private long _lastMouseMoveTick = Environment.TickCount64;
+
         private readonly DispatcherTimer _hideTimer;
 
         public ControlFadeManager(ILogger<ControlFadeManager> logger)
@@ -36,7 +45,16 @@ namespace Narabemi.Services
 
         public void AddMouseMoveTarget(Control target)
         {
-            target.PointerMoved += (_, _) => WeakReferenceMessenger.Default.Send(new ControlsMouseMoveMessage());
+            target.PointerMoved += (_, _) =>
+            {
+                // Throttle: only forward pointer-move messages at most once per ThrottleMs.
+                var now = Environment.TickCount64;
+                if (now - _lastSendTickCount < ThrottleMs)
+                    return;
+
+                _lastSendTickCount = now;
+                WeakReferenceMessenger.Default.Send(_sharedMoveMessage);
+            };
             _mouseMoveTargets.Add(target);
         }
 
@@ -47,8 +65,8 @@ namespace Narabemi.Services
         {
             if (IsVisible)
             {
-                var elapsed = DateTime.UtcNow - _lastMouseMoveTime;
-                if (elapsed > _hideStartDuration)
+                var elapsedMs = Environment.TickCount64 - _lastMouseMoveTick;
+                if (elapsedMs > HideStartDurationMs)
                 {
                     if (!_mouseHoverTargets.Any(v => v.IsPointerOver))
                         WeakReferenceMessenger.Default.Send(new ControlsVisibilityMessage(false));
@@ -62,7 +80,7 @@ namespace Narabemi.Services
 
         public void Receive(ControlsMouseMoveMessage message)
         {
-            _lastMouseMoveTime = DateTime.UtcNow;
+            _lastMouseMoveTick = Environment.TickCount64;
             if (!IsVisible)
                 WeakReferenceMessenger.Default.Send(new ControlsVisibilityMessage(true));
         }
