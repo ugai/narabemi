@@ -55,9 +55,6 @@ namespace Narabemi.ViewModels
         private double _timeOffset = 0.0;
 
         [ObservableProperty]
-        private bool _isControlPanelVisible = true;
-
-        [ObservableProperty]
         private string _displayInfo = string.Empty;
 
         private bool _isSeeking;
