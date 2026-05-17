@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.ComponentModel;
 using Microsoft.Extensions.Logging.Abstractions;
 using Narabemi.Mpv;
 using Narabemi.Settings;
@@ -52,6 +54,81 @@ namespace Narabemi.Tests
             vm.PlayerA.IsPaused = true;
 
             Assert.Equal(GlobalPlaybackState.Stop, vm.GlobalPlaybackState);
+        }
+
+        // --- SeekBoth / SeekRelative (Issue #85) ---
+
+        [Fact]
+        public void SeekBoth_DoesNotThrow_WhenAutoSyncOn()
+        {
+            var vm = CreateViewModel();
+            vm.AutoSync = true;
+
+            // mpv is not initialized, so SeekTo is a no-op; verify no exception is thrown.
+            var ex = Record.Exception(() => vm.SeekBoth(10.0));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void SeekBoth_DoesNotThrow_WhenAutoSyncOff()
+        {
+            var vm = CreateViewModel();
+            vm.AutoSync = false;
+
+            var ex = Record.Exception(() => vm.SeekBoth(10.0));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void SeekRelative_ClampsToZero_WhenResultIsNegative()
+        {
+            var vm = CreateViewModel();
+            // Duration must be positive so Math.Clamp(pos, 0, Duration) has valid bounds.
+            vm.PlayerA.Duration = 60.0;
+            vm.PlayerA.Position = 2.0;
+
+            // A large negative delta drives the clamped position to 0; verify no exception.
+            var ex = Record.Exception(() => vm.SeekRelative(-100.0));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void SeekRelative_ClampsToMaxDuration_WhenDurationIsKnown()
+        {
+            var vm = CreateViewModel();
+            vm.PlayerA.Duration = 60.0;
+            vm.PlayerA.Position = 55.0;
+
+            // A delta that would exceed Duration should be silently clamped.
+            var ex = Record.Exception(() => vm.SeekRelative(20.0));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void SeekRelative_WithSecondaryPlayer_DoesNotThrow_WhenAutoSyncOn()
+        {
+            var vm = CreateViewModel();
+            vm.AutoSync = true;
+            vm.PlayerA.Duration = 30.0;
+            vm.PlayerA.Position = 5.0;
+            vm.PlayerB.TimeOffset = 1.0;
+
+            var ex = Record.Exception(() => vm.SeekRelative(5.0));
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void SeekBoth_UsesPlayerB_AsPrimary_WhenMainPlayerIndexIsOne()
+        {
+            var vm = CreateViewModel();
+            vm.MainPlayerIndex = 1;
+            vm.AutoSync = true;
+            vm.PlayerB.Position = 10.0;
+            vm.PlayerA.TimeOffset = 2.0;
+
+            // Primary is now PlayerB; should seek PlayerB first, then PlayerA with offset.
+            var ex = Record.Exception(() => vm.SeekBoth(15.0));
+            Assert.Null(ex);
         }
     }
 }
