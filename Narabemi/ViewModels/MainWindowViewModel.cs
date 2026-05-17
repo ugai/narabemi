@@ -133,7 +133,10 @@ namespace Narabemi.ViewModels
         [RelayCommand]
         private void Closed()
         {
-            if (IsSnapshotMode) return;
+            // Skip persistence in headless test modes — App used to gate this via its
+            // own ShutdownRequested handler; now that this is the single canonical save
+            // path, the gate moved here.
+            if (IsSnapshotMode || IsBenchMode) return;
             _appStatesService.ApplyFrom(this);
             _appStatesService.SaveFile();
             _logger.LogInformation("State saved to appstates.json");
