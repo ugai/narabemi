@@ -494,7 +494,37 @@ namespace Narabemi.Views
                     vm.ResetSplit();
                     e.Handled = true;
                     break;
+                case Key.S when !ctrl && !shift:
+                    SaveSnapshot(vm);
+                    e.Handled = true;
+                    break;
             }
+        }
+
+        private void SaveSnapshot(MainWindowViewModel vm)
+        {
+            // Determine output directory: prefer the folder containing PlayerA's video;
+            // fall back to Pictures if no video is loaded.
+            var videoPath = vm.PlayerA.VideoPath;
+            var outDir = !string.IsNullOrEmpty(videoPath) && File.Exists(videoPath)
+                ? Path.GetDirectoryName(videoPath) ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)
+                : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+
+            var baseName = !string.IsNullOrEmpty(videoPath)
+                ? Path.GetFileNameWithoutExtension(videoPath)
+                : "snapshot";
+
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var pathA = Path.Combine(outDir, $"{baseName}_snapshot_{timestamp}_a.png");
+            var pathB = Path.Combine(outDir, $"{baseName}_snapshot_{timestamp}_b.png");
+
+            var retA = vm.PlayerA.MpvPlayer.SnapshotToFile(pathA);
+            if (retA != 0)
+                System.Diagnostics.Debug.WriteLine($"[Snapshot] PlayerA SnapshotToFile returned {retA} for '{pathA}'");
+
+            var retB = vm.PlayerB.MpvPlayer.SnapshotToFile(pathB);
+            if (retB != 0)
+                System.Diagnostics.Debug.WriteLine($"[Snapshot] PlayerB SnapshotToFile returned {retB} for '{pathB}'");
         }
 
         private async System.Threading.Tasks.Task OpenFileAsync(VideoPlayerViewModel target)

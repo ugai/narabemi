@@ -56,7 +56,7 @@ dotnet test Narabemi.Tests/Narabemi.Tests.csproj
 
 - **Open files**: drag-and-drop two video files onto the window, or use `Ctrl+O` / `Ctrl+Shift+O` to open files for player A / B individually.
 - **Drag the splitter**: the thin line between the two video panes is draggable — grab it to change the split ratio in real time.
-- **Keyboard shortcuts**: `Space` play/pause, `Esc` stop, `←` / `→` seek ±5 s (`Shift+` for ±30 s).
+- **Keyboard shortcuts**: `Space` play/pause, `Esc` stop, `←` / `→` seek ±5 s (`Shift+` for ±30 s), `S` save a snapshot of both players' current frame.
 - **Split direction**: toggle between Horizontal (side-by-side) and Vertical (stacked) via the `Horizontal/Vertical` button in the control panel.
 - **Sync** seeks both players together when enabled. **Loop** loops the current videos.
 
