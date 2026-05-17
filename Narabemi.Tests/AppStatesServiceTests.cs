@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using Narabemi.Settings;
 using Xunit;
@@ -28,6 +30,16 @@ namespace Narabemi.Tests
             public ColorRgba BlendBorderColor { get; set; }
             public double BlendRatio { get; set; }
             public int BlendMode { get; set; }
+        }
+
+        [Fact]
+        public void FilePath_IsRelativeToInstallDirectory()
+        {
+            // AppStatesService.FilePath must be anchored to AppContext.BaseDirectory, not CWD.
+            // This ensures the file is always found/written next to the EXE regardless of the
+            // working directory from which the process was launched.
+            var expected = Path.Combine(AppContext.BaseDirectory, "appstates.json");
+            Assert.Equal(expected, AppStatesService.FilePath, StringComparer.OrdinalIgnoreCase);
         }
 
         [Fact]

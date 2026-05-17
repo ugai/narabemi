@@ -13,7 +13,9 @@ namespace Narabemi.Settings
     /// </summary>
     public class AppStatesService
     {
-        private const string FileName = "appstates.json";
+        // Internal for unit-testing: lets tests assert that the path is install-relative.
+        internal static readonly string FilePath =
+            Path.Combine(AppContext.BaseDirectory, "appstates.json");
 
         private readonly JsonSerializerOptions _opt = new()
         {
@@ -34,27 +36,27 @@ namespace Narabemi.Settings
 
         public void LoadFile()
         {
-            if (!File.Exists(FileName))
+            if (!File.Exists(FilePath))
             {
-                _logger.LogWarning("{FileName} not found; using default {TypeName}.", FileName, nameof(AppStates));
+                _logger.LogWarning("{FilePath} not found; using default {TypeName}.", FilePath, nameof(AppStates));
                 Current = new AppStates();
                 return;
             }
 
             try
             {
-                var jsonText = File.ReadAllText(FileName);
+                var jsonText = File.ReadAllText(FilePath);
                 Current = JsonSerializer.Deserialize<AppStates>(jsonText, _opt);
 
                 if (Current is null)
                 {
-                    _logger.LogWarning("{FileName} deserialized to null; using default {TypeName}.", FileName, nameof(AppStates));
+                    _logger.LogWarning("{FilePath} deserialized to null; using default {TypeName}.", FilePath, nameof(AppStates));
                     Current = new AppStates();
                 }
             }
             catch (Exception ex) when (ex is IOException or JsonException)
             {
-                _logger.LogWarning(ex, "Failed to load {FileName}; using default {TypeName}.", FileName, nameof(AppStates));
+                _logger.LogWarning(ex, "Failed to load {FilePath}; using default {TypeName}.", FilePath, nameof(AppStates));
                 Current = new AppStates();
             }
         }
@@ -64,7 +66,7 @@ namespace Narabemi.Settings
             Guard.IsNotNull(Current);
 
             var jsonText = JsonSerializer.Serialize(Current, _opt);
-            File.WriteAllText(FileName, jsonText);
+            File.WriteAllText(FilePath, jsonText);
         }
 
         public void ApplyTo(IAppStateTarget target)
