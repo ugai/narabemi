@@ -56,7 +56,7 @@ MainWindow (Grid: rows = "*,Auto")
 - `Mpv/MpvPlayer.cs` — High-level wrapper. `InitNativeD3D11(hwnd)` is the only init path. Background event-loop thread; `Dispose` sends `quit` and joins before `terminate_destroy` to avoid an AVE race.
 - `Mpv/MpvVideoView.cs` — Avalonia `NativeControlHost` that exposes the child HWND.
 - `UI/Controls/VideoPlayerControl.axaml` — UserControl wrapping `MpvVideoView`; calls `vm.InitMpv(hwnd)` on `HandleReady`.
-- `ViewModels/VideoPlayerViewModel.cs` — One per player; mediates `MpvPlayer` events ↔ Avalonia bindings; 250 ms poll timer keeps `Position`/`Duration`/`IsPaused` fresh.
+- `ViewModels/VideoPlayerViewModel.cs` — One per player; mediates `MpvPlayer` events ↔ Avalonia bindings. Implements `IDisposable` to unsubscribe event handlers on shutdown.
 - `ViewModels/MainWindowViewModel.cs` — `PlayerA`/`PlayerB`, `BlendMode`, `BlendRatio`, `AutoSync`, `Loop`, `MasterVolume`. `SeekBoth` / `SeekRelative` for keyboard nav.
 - `Views/MainWindow.axaml.cs` — Drag-to-split splitter handlers, drop overlay, key shortcuts (Space, Esc, ←/→, Ctrl+O / Ctrl+Shift+O).
 - `Services/ControlFadeManager.cs` + `UI/Controls/ControlFadeAnimator.cs` — Auto-hide control panel.
