@@ -186,6 +186,13 @@ namespace Narabemi.Views
         private bool _layoutHorizontal = true;
         private bool _layoutInitialized;
 
+        // Cached cursors — Cursor implements IDisposable; allocating one per layout
+        // rebuild or per drag tick would leak the previous instance.
+        private static readonly Avalonia.Input.Cursor CursorSizeWestEast =
+            new(Avalonia.Input.StandardCursorType.SizeWestEast);
+        private static readonly Avalonia.Input.Cursor CursorSizeNorthSouth =
+            new(Avalonia.Input.StandardCursorType.SizeNorthSouth);
+
         /// <summary>
         /// Computes the InnerVideoGrid's pixel size (matched to source aspect) and the
         /// per-cell pixel widths/heights so the cropped video fills each cell with no
@@ -292,7 +299,7 @@ namespace Narabemi.Views
                 Grid.SetRow(a, 0);        Grid.SetColumn(a, 0);
                 Grid.SetRow(splitter, 0); Grid.SetColumn(splitter, 1);
                 Grid.SetRow(b, 0);        Grid.SetColumn(b, 2);
-                splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast);
+                splitter.Cursor = CursorSizeWestEast;
             }
             else
             {
@@ -302,7 +309,7 @@ namespace Narabemi.Views
                 Grid.SetRow(a, 0);        Grid.SetColumn(a, 0);
                 Grid.SetRow(splitter, 1); Grid.SetColumn(splitter, 0);
                 Grid.SetRow(b, 2);        Grid.SetColumn(b, 0);
-                splitter.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeNorthSouth);
+                splitter.Cursor = CursorSizeNorthSouth;
             }
 
             _layoutHorizontal = horizontal;
