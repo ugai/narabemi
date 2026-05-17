@@ -479,6 +479,14 @@ namespace Narabemi.Views
                     _ = OpenFileAsync(secondary);
                     e.Handled = true;
                     break;
+                case Key.H:
+                    vm.ToggleBlendMode();
+                    e.Handled = true;
+                    break;
+                case Key.R:
+                    vm.ResetSplit();
+                    e.Handled = true;
+                    break;
             }
         }
 

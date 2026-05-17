@@ -288,5 +288,21 @@ namespace Narabemi.ViewModels
         {
             IsMasterVolumeMuted = !IsMasterVolumeMuted;
         }
+
+        /// <summary>
+        /// Toggles <see cref="BlendMode"/> between 0 (Horizontal) and 1 (Vertical).
+        /// </summary>
+        public void ToggleBlendMode()
+        {
+            BlendMode = BlendMode == 0 ? 1 : 0;
+        }
+
+        /// <summary>
+        /// Resets <see cref="BlendRatio"/> to the centre (0.5).
+        /// </summary>
+        public void ResetSplit()
+        {
+            BlendRatio = 0.5;
+        }
     }
 }
