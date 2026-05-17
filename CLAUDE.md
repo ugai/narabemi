@@ -61,14 +61,14 @@ MainWindow (Grid: rows = "*,Auto")
 - `Views/MainWindow.axaml.cs` — Drag-to-split splitter handlers, drop overlay, key shortcuts (Space, Esc, ←/→, Ctrl+O / Ctrl+Shift+O).
 - `Services/ControlFadeManager.cs` + `UI/Controls/ControlFadeAnimator.cs` — Auto-hide control panel.
 - `Settings/AppStatesService.cs` — Persists/loads `appstates.json`.
-- `Settings/ColorRgba.cs` — Platform-neutral color (kept for `BlendBorderColor` backwards-compat in saved state).
+- `Settings/ColorRgba.cs` — Platform-neutral color (kept for `AppStates.BlendBorderColor` JSON forward-compat in saved state; not exposed on the VM or interface).
 - `Testing/ProbeRunner.cs` / `BenchmarkRunner.cs` / `SnapshotRunner.cs` — CLI test harnesses (see Test Modes below).
 
 **Settings layer** (`Settings/`) has no UI framework dependency.
 
 **Configuration:**
 - `appsettings.json` — read-only (mpv directory, etc.).
-- `appstates.json` — mutable runtime state (Loop, AutoSync, MainPlayerIndex, VideoPathList, BlendMode, BlendRatio, WindowWidth/Height/X/Y, IsWindowMaximized). `BlendBorderWidth` / `BlendBorderColor` remain in the schema for forward-compat but no longer drive any UI.
+- `appstates.json` — mutable runtime state (Loop, AutoSync, MainPlayerIndex, VideoPathList, BlendMode, BlendRatio, WindowWidth/Height/X/Y, IsWindowMaximized). `BlendBorderWidth` / `BlendBorderColor` remain on the `AppStates` data class for JSON forward-compat but are not wired to the VM or interface.
 
 ## Test Modes
 

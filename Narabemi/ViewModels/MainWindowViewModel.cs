@@ -27,12 +27,6 @@ namespace Narabemi.ViewModels
         private int _mainPlayerIndex;
 
         [ObservableProperty]
-        private double _blendBorderWidth = 1.0;
-
-        [ObservableProperty]
-        private ColorRgba _blendBorderColor = ColorRgba.White;
-
-        [ObservableProperty]
         private double _blendRatio = 0.5;
 
         [ObservableProperty]

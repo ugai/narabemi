@@ -26,8 +26,6 @@ namespace Narabemi.Tests
                 new StubPlayer(),
                 new StubPlayer(),
             };
-            public double BlendBorderWidth { get; set; }
-            public ColorRgba BlendBorderColor { get; set; }
             public double BlendRatio { get; set; }
             public int BlendMode { get; set; }
         }
@@ -77,18 +75,14 @@ namespace Narabemi.Tests
             Assert.Equal(0.5, target.StatePlayers[1].Speed);
             Assert.Equal(0.0, target.StatePlayers[0].TimeOffset);
             Assert.Equal(-1.5, target.StatePlayers[1].TimeOffset);
-            Assert.Equal(2.5, target.BlendBorderWidth);
-            Assert.Equal(new ColorRgba(255, 0, 128, 255), target.BlendBorderColor);
 
             target.Loop = false;
-            target.BlendBorderColor = new ColorRgba(0, 255, 0, 255);
             target.StatePlayers[0].Speed = 1.5;
             target.StatePlayers[1].TimeOffset = 3.0;
 
             service.ApplyFrom(target);
 
             Assert.False(service.Current.Loop);
-            Assert.Equal(new ColorRgba(0, 255, 0, 255), service.Current.BlendBorderColor);
             Assert.Equal(1.5, service.Current.PlayerSpeedList[0]);
             Assert.Equal(3.0, service.Current.PlayerTimeOffsetList[1]);
 
