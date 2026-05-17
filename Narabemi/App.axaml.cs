@@ -32,8 +32,6 @@ namespace Narabemi
             Assembly.GetExecutingAssembly()
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
 
-        public static IServiceProvider Services { get; private set; } = null!;
-
         private IHost? _host;
 
         public override void Initialize()
@@ -108,17 +106,17 @@ namespace Narabemi
             var snapshotArgs = SnapshotArgs.Parse(desktop.Args);
 
             _host = CreateHostBuilder().Build();
-            Services = _host.Services;
+            var services = _host.Services;
 
             if (snapshotArgs.IsProbeNativeMode)
             {
-                var probeLogger = Services.GetRequiredService<ILogger<ProbeRunner>>();
+                var probeLogger = services.GetRequiredService<ILogger<ProbeRunner>>();
                 new ProbeRunner(snapshotArgs, probeLogger).Start();
                 base.OnFrameworkInitializationCompleted();
                 return;
             }
 
-            var appStatesService = Services.GetRequiredService<AppStatesService>();
+            var appStatesService = services.GetRequiredService<AppStatesService>();
             appStatesService.LoadFile();
 
             // In snapshot/bench mode, override video paths before ApplyTo runs
@@ -134,9 +132,9 @@ namespace Narabemi
                 }
             }
 
-            var mainWindow = Services.GetRequiredService<MainWindow>();
-            var mainVm = Services.GetRequiredService<MainWindowViewModel>();
-            var fadeManager = Services.GetRequiredService<ControlFadeManager>();
+            var mainWindow = services.GetRequiredService<MainWindow>();
+            var mainVm = services.GetRequiredService<MainWindowViewModel>();
+            var fadeManager = services.GetRequiredService<ControlFadeManager>();
 
             mainWindow.DataContext = mainVm;
             // Skip window geometry restore in headless test modes so the fixed
@@ -173,13 +171,13 @@ namespace Narabemi
             // Start snapshot/bench runner after window is shown
             if (snapshotArgs.IsSnapshotMode)
             {
-                var logger = Services.GetRequiredService<ILogger<SnapshotRunner>>();
+                var logger = services.GetRequiredService<ILogger<SnapshotRunner>>();
                 var runner = new SnapshotRunner(snapshotArgs, mainVm, logger);
                 runner.Start(mainWindow);
             }
             else if (snapshotArgs.IsBenchMode)
             {
-                var logger = Services.GetRequiredService<ILogger<BenchmarkRunner>>();
+                var logger = services.GetRequiredService<ILogger<BenchmarkRunner>>();
                 var runner = new BenchmarkRunner(snapshotArgs, mainVm, logger);
                 runner.Start();
             }
