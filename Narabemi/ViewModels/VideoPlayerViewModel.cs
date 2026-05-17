@@ -15,6 +15,7 @@ namespace Narabemi.ViewModels
         private readonly ILogger<VideoPlayerViewModel> _logger;
         private bool _mpvInitialized;
         private bool _disposed;
+        private IntPtr _boundHwnd;
 
         /// <summary>Source video pixel dimensions, populated on FileLoaded.</summary>
         public int SourceWidth { get; private set; }
@@ -103,13 +104,33 @@ namespace Narabemi.ViewModels
         /// <summary>
         /// Initializes mpv with native D3D11 video output and full HW decoding,
         /// rendering directly into the provided child HWND.
+        /// <para>
+        /// Safe to call on native-control re-creation: if mpv is already bound to the
+        /// same HWND the call is a no-op; if a different HWND arrives (e.g. display
+        /// reconfiguration, future dock/undock) the wid property is updated in-place so
+        /// mpv migrates rendering without a full context restart.
+        /// </para>
         /// </summary>
         public void InitMpv(IntPtr windowHandle)
         {
-            if (_mpvInitialized) return;
+            if (!_mpvInitialized)
+            {
+                _mpvPlayer.InitNativeD3D11(windowHandle.ToInt64());
+                _boundHwnd = windowHandle;
+                FinishInit();
+                return;
+            }
 
-            _mpvPlayer.InitNativeD3D11(windowHandle.ToInt64());
-            FinishInit();
+            // Native control was re-created -- detect whether the HWND actually changed.
+            if (windowHandle == _boundHwnd)
+                return;
+
+            _logger.LogWarning(
+                "Native control re-created with a different HWND " +
+                "(old=0x{Old:X}, new=0x{New:X}); rebinding mpv wid to the new window.",
+                _boundHwnd, windowHandle);
+            _mpvPlayer.RebindWindow(windowHandle.ToInt64());
+            _boundHwnd = windowHandle;
         }
 
         private void FinishInit()

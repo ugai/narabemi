@@ -68,6 +68,23 @@ namespace Narabemi.Mpv
             _logger.LogInformation("mpv initialized (native d3d11, wid={WindowId})", windowId);
         }
 
+        /// <summary>
+        /// Updates libmpv's output window to a new native handle after the native control
+        /// has been re-created by Avalonia (e.g. on display reconfiguration or future
+        /// dock/undock flows). The wid property is writable at runtime; mpv will
+        /// migrate the video output to the new window on the next rendered frame.
+        /// </summary>
+        public void RebindWindow(long windowId)
+        {
+            EnsureInit();
+            var err = MpvApi.SetPropertyString(_ctx, "wid", windowId.ToString());
+            if (err < 0)
+                _logger.LogWarning("mpv wid rebind failed (err={Err}): {Msg}",
+                    err, MpvApi.GetErrorMessage(err));
+            else
+                _logger.LogInformation("mpv rebound to new wid={WindowId}", windowId);
+        }
+
         /// <summary>Returns the value of an mpv property as a string, or null if unavailable.</summary>
         public string? GetPropertyStr(string name)
         {
