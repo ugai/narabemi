@@ -41,7 +41,8 @@
                      fills its 1px cell; orientation is set in code-behind from BlendMode. -->
                 <Border x:Name="VideoSplitter"
                         Background="#66FFFFFF"
-                        BorderThickness="0">
+                        BorderThickness="0"
+                        ToolTip.Tip="Drag to adjust split · Double-click to reset to 50%">
                     <Border.Styles>
                         <Style Selector="Border#VideoSplitter:pointerover">
                             <Setter Property="Background" Value="#E6FFFFFF" />
