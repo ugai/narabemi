@@ -165,15 +165,10 @@ namespace Narabemi
 
             desktop.MainWindow = mainWindow;
 
-            // Don't save appstates on exit in snapshot/bench mode (avoids overwriting user state)
-            if (!snapshotArgs.IsSnapshotMode && !snapshotArgs.IsBenchMode)
-            {
-                desktop.ShutdownRequested += (_, _) =>
-                {
-                    appStatesService.ApplyFrom(mainVm);
-                    appStatesService.SaveFile();
-                };
-            }
+            // Persistence on shutdown is owned by MainWindowViewModel.Closed (the single
+            // canonical save path). The duplicate ShutdownRequested handler that previously
+            // lived here was removed — the VM command already gates on
+            // IsSnapshotMode/IsBenchMode and handles the same ApplyFrom/SaveFile sequence.
 
             // Start snapshot/bench runner after window is shown
             if (snapshotArgs.IsSnapshotMode)
