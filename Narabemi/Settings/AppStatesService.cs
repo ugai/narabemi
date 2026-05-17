@@ -31,7 +31,7 @@ namespace Narabemi.Settings
         public AppStatesService(ILogger<AppStatesService> logger)
         {
             _logger = logger;
-            _opt.Converters.Add(new ColorRgbaJsonConverter());
+            _opt.Converters.Add(new ColorRgbaJsonConverter(msg => _logger.LogWarning("{Message}", msg)));
         }
 
         public void LoadFile()
