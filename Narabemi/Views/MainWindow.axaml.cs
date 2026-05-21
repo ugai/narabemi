@@ -2,12 +2,15 @@ using System;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Narabemi.Mpv;
 using Narabemi.Services;
 using Narabemi.Settings;
 using Narabemi.UI.Controls;
@@ -31,6 +34,9 @@ namespace Narabemi.Views
         private VideoPlayerControl? _playerAView;
         private VideoPlayerControl? _playerBView;
         private Border? _videoSplitter;
+
+        // Cancels the auto-clear timer when a new snapshot status replaces the previous one.
+        private CancellationTokenSource? _snapshotStatusCts;
 
         // Parameterless ctor kept for the Avalonia designer; chains to the logger ctor
         // so InitializeComponent() is always called exactly once.
@@ -428,11 +434,53 @@ namespace Narabemi.Views
 
             var retA = vm.PlayerA.MpvPlayer.SnapshotToFile(pathA);
             if (retA != 0)
-                System.Diagnostics.Debug.WriteLine($"[Snapshot] PlayerA SnapshotToFile returned {retA} for '{pathA}'");
+            {
+                var errMsg = MpvApi.GetErrorMessage(retA) ?? retA.ToString();
+                _logger.LogWarning("Snapshot PlayerA failed (code {Code}: {Error}) for '{Path}'", retA, errMsg, pathA);
+                ShowSnapshotStatus($"Snapshot failed (A): {errMsg}", isError: true);
+                return;
+            }
 
             var retB = vm.PlayerB.MpvPlayer.SnapshotToFile(pathB);
             if (retB != 0)
-                System.Diagnostics.Debug.WriteLine($"[Snapshot] PlayerB SnapshotToFile returned {retB} for '{pathB}'");
+            {
+                var errMsg = MpvApi.GetErrorMessage(retB) ?? retB.ToString();
+                _logger.LogWarning("Snapshot PlayerB failed (code {Code}: {Error}) for '{Path}'", retB, errMsg, pathB);
+                ShowSnapshotStatus($"Snapshot failed (B): {errMsg}", isError: true);
+                return;
+            }
+
+            _logger.LogInformation("Snapshot saved: '{PathA}', '{PathB}'", pathA, pathB);
+            ShowSnapshotStatus($"Snapshot saved: {Path.GetFileName(pathA)}", isError: false);
+        }
+
+        private void ShowSnapshotStatus(string message, bool isError)
+        {
+            var label = this.FindControl<TextBlock>("SnapshotStatusText");
+            if (label is null) return;
+
+            // Cancel any pending auto-clear from a previous snapshot.
+            _snapshotStatusCts?.Cancel();
+            _snapshotStatusCts?.Dispose();
+            var cts = new CancellationTokenSource();
+            _snapshotStatusCts = cts;
+
+            label.Text = message;
+            label.Foreground = isError
+                ? new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#FF6666"))
+                : new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#AAAAAA"));
+            label.IsVisible = true;
+
+            // Auto-clear after 4 seconds; cancel if another snapshot fires first.
+            _ = System.Threading.Tasks.Task.Delay(4000, cts.Token).ContinueWith(t =>
+            {
+                if (t.IsCanceled) return;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    label.IsVisible = false;
+                    label.Text = string.Empty;
+                });
+            }, System.Threading.Tasks.TaskScheduler.Default);
         }
 
         private async System.Threading.Tasks.Task OpenFileAsync(VideoPlayerViewModel target)
@@ -549,6 +597,8 @@ namespace Narabemi.Views
                 vm.ClosedCommand.Execute(null);
             }
 
+            _snapshotStatusCts?.Cancel();
+            _snapshotStatusCts?.Dispose();
             _splitterDragController?.Dispose();
             _fadeAnimator?.Dispose();
             _fadeManager?.Dispose();
