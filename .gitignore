@@ -363,6 +363,9 @@ MigrationBackup/
 FodyWeavers.xsd
 
 ffmpeg/
+Narabemi/lib/
+_temp/
+_publish/
 *.zip
 
 # IDE
@@ -370,3 +373,8 @@ ffmpeg/
 
 # Claude Code local settings
 .claude/settings.local.json
+.claude/worktrees/
+.claude/agent-memory/
+
+# Runtime state
+appstates.json

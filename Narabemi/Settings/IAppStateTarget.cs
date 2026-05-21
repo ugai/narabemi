@@ -12,8 +12,8 @@ namespace Narabemi.Settings
         bool AutoSync { get; set; }
         int MainPlayerIndex { get; set; }
         IList<IAppStatePlayerTarget> StatePlayers { get; }
-        double BlendBorderWidth { get; set; }
-        ColorRgba BlendBorderColor { get; set; }
+        double BlendRatio { get; set; }
+        int BlendMode { get; set; }
     }
 
     /// <summary>
@@ -22,5 +22,7 @@ namespace Narabemi.Settings
     public interface IAppStatePlayerTarget
     {
         string VideoPath { get; set; }
+        double Speed { get; set; }
+        double TimeOffset { get; set; }
     }
 }

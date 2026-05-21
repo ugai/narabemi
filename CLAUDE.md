@@ -4,59 +4,108 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Narabemi is a Windows desktop application for side-by-side video comparison, built with C#/.NET 6.0 and WPF. It uses FFME (FFmpeg Media Element) for video playback and custom HLSL pixel shaders for blend effects.
+Narabemi is a Windows desktop application for side-by-side video comparison. There are two versions in this repository:
+
+- **`Narabemi/`** — Active version. Avalonia 11 + libmpv, .NET 10. Dual-HWND native D3D11 playback.
+- **`Narabemi.Wpf/`** — Legacy WPF + FFME, .NET 6, preserved for reference only.
 
 ## Build & Run Commands
 
 ```bash
-# Build
+# Build / run / test (Avalonia version)
 dotnet build Narabemi/Narabemi.csproj
+dotnet run   --project Narabemi/Narabemi.csproj
+dotnet test  Narabemi.Tests/Narabemi.Tests.csproj
 
-# Run
-dotnet run --project Narabemi/Narabemi.csproj
+# Headless test modes (use a test video, e.g. _temp/jizou_60fps.mp4)
+dotnet run --project Narabemi/Narabemi.csproj -- --bench 15 \
+    --video-a <pathA> --video-b <pathB>
+dotnet run --project Narabemi/Narabemi.csproj -- --snapshot --seek 5 \
+    --video-a <pathA> --video-b <pathB> -o snapshot.png
+dotnet run --project Narabemi/Narabemi.csproj -- --probe-native 15 \
+    --video-a <pathA> [--video-b <pathB>]
 
-# Publish
-dotnet publish Narabemi/Narabemi.csproj
-
-# Hot reload
-dotnet watch run --project Narabemi/Narabemi.csproj
+# Legacy WPF version
+dotnet build Narabemi.Wpf/Narabemi.csproj
+dotnet test  Narabemi.Wpf.Tests/Narabemi.Tests.csproj
 ```
 
-**Note:** The PreBuild target compiles HLSL shaders via `Shaders/compile_shaders.bat` and copies them to the output directory. FFmpeg binaries must be present at the path configured in `appsettings.json` (default: `./ffmpeg/bin`). Run `download_ffmpeg.bat` to fetch them.
-
-```bash
-# Test
-dotnet test Narabemi.Tests/Narabemi.Tests.csproj
-```
+**Note:** libmpv binary (`libmpv-2.dll`) must be present in `Narabemi/lib/` for video playback.
 
 Tests run automatically as a pre-commit hook.
 
-## Architecture
+## Architecture (Avalonia version)
 
-**MVVM with DI:** Uses `Microsoft.Extensions.Hosting` for dependency injection and `CommunityToolkit.Mvvm` for the MVVM pattern (`[ObservableProperty]`, `[RelayCommand]`, `WeakReferenceMessenger`).
+**Playback model.** Two independent `MpvPlayer` instances each own a child HWND and render directly to it via `vo=gpu, gpu-api=d3d11, hwdec=d3d11va`. There is no shared GPU pipeline, no Compute Shader blend, no CPU readback. The split-position UI is implemented as a Grid layout, not a fragment shader: column/row star ratios react to `BlendRatio`, and a sibling Border between the two players is the drag handle.
 
-**Entry point:** `App.xaml.cs` — builds the Generic Host, configures DI container (singletons for services and MainWindow), loads config, initializes FFME, then shows MainWindow.
+```
+MainWindow (Grid: rows = "*,Auto")
+├── VideoGrid                                ← row 0, dynamic Cols/Rows from BlendMode+Ratio
+│   ├── VideoPlayerControl (PlayerA)         ← NativeControlHost + MpvVideoView
+│   ├── VideoSplitter (Border, 6px)          ← drag to update BlendRatio
+│   └── VideoPlayerControl (PlayerB)
+└── Control panel                            ← row 1: play/pause, seek, volume, split slider
+```
 
-**Key services (all singletons):**
-- `MediaElementsManager` — synchronizes playback across two video players, handles sync strategies (simple offset vs. speed-ratio adjustment)
-- `ControlFadeManager` — auto-hide/show UI controls based on mouse activity
-- `AppStatesService` — persists/loads mutable runtime state (`appstates.json`)
+`ApplyVideoLayout` in [MainWindow.axaml.cs](Narabemi/Views/MainWindow.axaml.cs) clears `RowDefinitions` / `ColumnDefinitions` and rebuilds them from `BlendMode` (0=Horizontal, 1=Vertical) and `BlendRatio` ∈ [0,1]. Subscribed to `MainWindowViewModel.PropertyChanged`.
 
-**Settings layer** (`Settings/`) has no WPF dependency. `ColorRgba` is a platform-neutral color type used in `IAppStateTarget` and `AppStates`; conversion to `System.Windows.Media.Color` happens only in `MainWindowViewModel`.
+**MVVM with DI.** `Microsoft.Extensions.Hosting` (Generic Host) for the DI container; `CommunityToolkit.Mvvm` for `[ObservableProperty]`, `[RelayCommand]`. Decoupled cross-component messaging via `WeakReferenceMessenger`; message types (`ControlsMouseMoveMessage`, `ControlsVisibilityMessage`) are defined inline in `Services/ControlFadeManager.cs`.
 
-**UI layer:** `UI/Windows/` for windows, `UI/Controls/` for reusable controls. Each has a XAML + code-behind + ViewModel. `VideoPlayer` wraps `FFME.MediaElement` with drag-and-drop, subtitle support, and per-player volume/offset.
+**Key components:**
+- `Mpv/MpvApi.cs` — `LibraryImport` P/Invoke layer for libmpv (lifecycle, properties, events).
+- `Mpv/MpvPlayer.cs` — High-level wrapper. `InitNativeD3D11(hwnd)` is the only init path. Background event-loop thread; `Dispose` sends `quit` and joins before `terminate_destroy` to avoid an AVE race.
+- `Mpv/MpvVideoView.cs` — Avalonia `NativeControlHost` that exposes the child HWND.
+- `UI/Controls/VideoPlayerControl.axaml` — UserControl wrapping `MpvVideoView`; calls `vm.InitMpv(hwnd)` on `HandleReady`.
+- `ViewModels/VideoPlayerViewModel.cs` — One per player; mediates `MpvPlayer` events ↔ Avalonia bindings. Implements `IDisposable` to unsubscribe event handlers on shutdown.
+- `ViewModels/MainWindowViewModel.cs` — `PlayerA`/`PlayerB`, `BlendMode`, `BlendRatio`, `AutoSync`, `Loop`, `MasterVolume`. `SeekBoth` / `SeekRelative` for keyboard nav.
+- `Views/MainWindow.axaml.cs` — Drag-to-split splitter handlers, drop overlay, key shortcuts (Space, Esc, ←/→, Ctrl+O / Ctrl+Shift+O).
+- `Services/ControlFadeManager.cs` + `UI/Controls/ControlFadeAnimator.cs` — Auto-hide control panel.
+- `Settings/AppStatesService.cs` — Persists/loads `appstates.json`.
+- `Settings/ColorRgba.cs` — Platform-neutral color (kept for `AppStates.BlendBorderColor` JSON forward-compat in saved state; not exposed on the VM or interface).
+- `Testing/ProbeRunner.cs` / `BenchmarkRunner.cs` / `SnapshotRunner.cs` — CLI test harnesses (see Test Modes below).
 
-**Messaging:** Decoupled communication via `WeakReferenceMessenger` with message types in `Messages/`.
+**Settings layer** (`Settings/`) has no UI framework dependency.
 
 **Configuration:**
-- `appsettings.json` — read-only settings (FFmpeg path, shader path, sync timer interval)
-- `appstates.json` — mutable runtime state (loop, auto-sync, video paths, blend border)
+- `appsettings.json` — read-only (mpv directory, etc.).
+- `appstates.json` — mutable runtime state (Loop, AutoSync, MainPlayerIndex, VideoPathList, BlendMode, BlendRatio, WindowWidth/Height/X/Y, IsWindowMaximized). `BlendBorderWidth` / `BlendBorderColor` remain on the `AppStates` data class for JSON forward-compat but are not wired to the VM or interface.
 
-**Shaders:** HLSL pixel shaders in `Shaders/` compiled to `.fxc` with FXC compiler (PS 2.0). `BlendEffect.cs` loads these at runtime.
+## Test Modes
+
+| Mode | Flag | Purpose |
+|---|---|---|
+| Probe-native | `--probe-native <sec>` | Bypasses MainWindow; spins up a minimal Window with 1–2 mpv players for clean fps measurement. Used to validate architectural changes. |
+| Bench | `--bench <sec>` | Runs the real MainWindow + dual-HWND pipeline; samples `estimated-vf-fps` per player every 250 ms; logs avg/min/max + `vo-drop-frame-count` delta. |
+| Snapshot | `--snapshot --seek <sec>` | Loads, seeks, settles, then writes `screenshot-to-file` per player. Dual mode produces `<base>_a.<ext>` + `<base>_b.<ext>`. |
+
+All test modes skip `appstates.json` write on exit so they don't clobber user state.
+
+### Snapshot mode additional flags
+
+These flags apply only when `--snapshot` is active.
+
+| Flag | Type | Default | Purpose |
+|---|---|---|---|
+| `--set-ratio <0..1>` | `double` | (uses saved `BlendRatio`) | Overrides `BlendRatio` before the run, allowing CI to pin an exact wipe position without editing saved state. |
+| `--set-mode <horizontal\|vertical\|h\|v\|0\|1>` | string | (uses saved `BlendMode`) | Overrides `BlendMode` before the run. `0`/`h`/`horizontal` = side-by-side; `1`/`v`/`vertical` = stacked. |
+| `--verify-wipe` | flag | off | After dual-player capture succeeds, runs a pixel-diff across the wipe seam (A's last cropped column vs B's first). A large diff signals a mis-stitched wipe. Intended for autonomous CI regression tests. |
+
+### Snapshot exit codes
+
+`SnapshotRunner.Shutdown` passes one of the following codes to the process exit:
+
+| Code | Meaning |
+|---|---|
+| 0 | Success (and `--verify-wipe` passed, if requested). |
+| 1 | Unhandled exception during capture. |
+| 2 | Timeout — video did not load or settle within 30 s. |
+| 3 | Crop-dimension verification failed after 5 attempts (captured frame dimensions do not match expected crop). |
+| 4 | `--verify-wipe` seam-diff check failed (wipe appears mis-stitched). |
 
 ## Code Style
 
-- Warnings are treated as errors in both Debug and Release
-- Code style is enforced in builds (`EnforceCodeStyleInBuild`)
-- See `.editorconfig` for full formatting rules: 4-space indent for C#, Allman braces, PascalCase constants
-- `var` preferred when type is apparent
+- Warnings treated as errors in Debug and Release.
+- Code style enforced in builds (`EnforceCodeStyleInBuild`).
+- See `.editorconfig`: 4-space indent for C#, Allman braces, PascalCase constants.
+- `var` preferred when type is apparent.
+- Comments only when WHY is non-obvious (hidden constraints, workarounds).

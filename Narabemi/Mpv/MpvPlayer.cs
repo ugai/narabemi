@@ -1,0 +1,376 @@
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+using Microsoft.Extensions.Logging;
+
+namespace Narabemi.Mpv
+{
+    /// <summary>
+    /// High-level wrapper around a single mpv instance with native D3D11 video output.
+    /// Provides play/pause/seek/volume and property observation via a background event loop.
+    /// </summary>
+    public sealed class MpvPlayer : IDisposable
+    {
+        private IntPtr _ctx;
+        private Thread? _eventThread;
+        private volatile bool _disposed;
+        private readonly ILogger _logger;
+
+        // Observed property reply IDs
+        private const ulong ReplyPosition = 1;
+        private const ulong ReplyDuration = 2;
+        private const ulong ReplyPause = 3;
+        private const ulong ReplyEofReached = 4;
+
+        public event Action<double>? PositionChanged;
+        public event Action<double>? DurationChanged;
+        public event Action<bool>? PauseChanged;
+        public event Action? FileLoaded;
+        public event Action? EndOfFile;
+
+        public IntPtr Handle => _ctx;
+        public bool IsInitialized => _ctx != IntPtr.Zero;
+
+        public MpvPlayer(ILogger<MpvPlayer> logger)
+        {
+            _logger = logger;
+        }
+
+        /// <summary>
+        /// Initializes mpv with native D3D11 video output and full HW decoding (no CPU roundtrip),
+        /// rendering directly into the provided child HWND.
+        /// </summary>
+        public void InitNativeD3D11(long windowId)
+        {
+            _ctx = MpvApi.Create();
+            if (_ctx == IntPtr.Zero)
+                throw new InvalidOperationException("mpv_create failed");
+
+            CheckError(MpvApi.SetOptionString(_ctx, "wid", windowId.ToString()));
+            CheckError(MpvApi.SetOptionString(_ctx, "vo", "gpu"));
+            CheckError(MpvApi.SetOptionString(_ctx, "gpu-api", "d3d11"));
+
+            CheckError(MpvApi.SetOptionString(_ctx, "keep-open", "yes"));
+            CheckError(MpvApi.SetOptionString(_ctx, "keep-open-pause", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "idle", "yes"));
+            CheckError(MpvApi.SetOptionString(_ctx, "input-default-bindings", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "input-vo-keyboard", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "osc", "no"));
+            CheckError(MpvApi.SetOptionString(_ctx, "osd-level", "0"));
+
+            // True HW decode: GPU-decoded frames stay on the GPU as D3D11 textures,
+            // no CPU readback (unlike dxva2-copy which forces sysmem roundtrip).
+            CheckError(MpvApi.SetOptionString(_ctx, "hwdec", "d3d11va"));
+            CheckError(MpvApi.SetOptionString(_ctx, "vd-lavc-fast", "yes"));
+
+            CheckError(MpvApi.Initialize(_ctx));
+            StartEventLoop();
+            _logger.LogInformation("mpv initialized (native d3d11, wid={WindowId})", windowId);
+        }
+
+        /// <summary>
+        /// Updates libmpv's output window to a new native handle after the native control
+        /// has been re-created by Avalonia (e.g. on display reconfiguration or future
+        /// dock/undock flows). The wid property is writable at runtime; mpv will
+        /// migrate the video output to the new window on the next rendered frame.
+        /// </summary>
+        public void RebindWindow(long windowId)
+        {
+            EnsureInit();
+            var err = MpvApi.SetPropertyString(_ctx, "wid", windowId.ToString());
+            if (err < 0)
+                _logger.LogWarning("mpv wid rebind failed (err={Err}): {Msg}",
+                    err, MpvApi.GetErrorMessage(err));
+            else
+                _logger.LogInformation("mpv rebound to new wid={WindowId}", windowId);
+        }
+
+        /// <summary>Returns the value of an mpv property as a string, or null if unavailable.</summary>
+        public string? GetPropertyStr(string name)
+        {
+            EnsureInit();
+            return MpvApi.GetPropertyStringManaged(_ctx, name);
+        }
+
+        /// <summary>
+        /// Writes the current video frame to a PNG/JPEG file via mpv's screenshot-to-file
+        /// command. Captures the raw decoded frame (no OSD, no subtitles).
+        /// </summary>
+        public int SnapshotToFile(string path)
+        {
+            EnsureInit();
+            return MpvApi.CommandArgs(_ctx, "screenshot-to-file", path, "video");
+        }
+
+        private void StartEventLoop()
+        {
+            MpvApi.ObserveProperty(_ctx, ReplyPosition, "time-pos", MpvFormat.Double);
+            MpvApi.ObserveProperty(_ctx, ReplyDuration, "duration", MpvFormat.Double);
+            MpvApi.ObserveProperty(_ctx, ReplyPause, "pause", MpvFormat.Flag);
+            MpvApi.ObserveProperty(_ctx, ReplyEofReached, "eof-reached", MpvFormat.Flag);
+
+            _eventThread = new Thread(EventLoop)
+            {
+                IsBackground = true,
+                Name = "mpv-event-loop",
+            };
+            _eventThread.Start();
+        }
+
+        public void LoadFile(string path)
+        {
+            EnsureInit();
+            var err = MpvApi.CommandArgs(_ctx, "loadfile", path, "replace");
+            CheckError(err);
+            _logger.LogInformation("Loading file: {Path}", path);
+        }
+
+        public void Play()
+        {
+            EnsureInit();
+            SetPause(false);
+        }
+
+        public void Pause()
+        {
+            EnsureInit();
+            SetPause(true);
+        }
+
+        public void TogglePause()
+        {
+            EnsureInit();
+            MpvApi.CommandArgs(_ctx, "cycle", "pause");
+        }
+
+        public void Stop()
+        {
+            EnsureInit();
+            MpvApi.CommandArgs(_ctx, "stop");
+        }
+
+        public bool Loop
+        {
+            set
+            {
+                EnsureInit();
+                MpvApi.SetPropertyString(_ctx, "loop-file", value ? "inf" : "no");
+            }
+        }
+
+        /// <summary>
+        /// Sets mpv's video-crop property to restrict the visible region. Format is
+        /// "WxH+X+Y" in source-pixel coordinates, or empty string to clear.
+        /// Soft no-op when the player isn't initialized yet — the caller is expected
+        /// to re-apply once the file loads (see <see cref="MpvPlayer.FileLoaded"/>).
+        /// </summary>
+        public int SetVideoCrop(string crop)
+        {
+            if (_ctx == IntPtr.Zero) return 0;
+            return MpvApi.SetPropertyString(_ctx, "video-crop", crop ?? string.Empty);
+        }
+
+        public bool IsPaused
+        {
+            get
+            {
+                EnsureInit();
+                if (MpvApi.GetPropertyFlag(_ctx, "pause", MpvFormat.Flag, out var val) == 0)
+                    return val != 0;
+                return true;
+            }
+        }
+
+        public void Seek(double seconds, bool absolute = true, bool exact = false)
+        {
+            EnsureInit();
+            // mpv seek flags: keyframes (default, approximate) vs exact (frame-accurate
+            // but slower). For snapshot/comparison work A and B must land on the same
+            // frame, so the test runner asks for exact seeking.
+            var mode = absolute ? "absolute" : "relative";
+            if (exact) mode += "+exact";
+            MpvApi.CommandArgs(_ctx, "seek", seconds.ToString("F3"), mode);
+        }
+
+        public double Volume
+        {
+            get
+            {
+                EnsureInit();
+                if (MpvApi.GetProperty(_ctx, "volume", MpvFormat.Double, out var val) == 0)
+                    return val;
+                return 100.0;
+            }
+            set
+            {
+                EnsureInit();
+                var v = value;
+                MpvApi.SetProperty(_ctx, "volume", MpvFormat.Double, ref v);
+            }
+        }
+
+        public bool IsMuted
+        {
+            get
+            {
+                EnsureInit();
+                if (MpvApi.GetPropertyFlag(_ctx, "mute", MpvFormat.Flag, out var val) == 0)
+                    return val != 0;
+                return false;
+            }
+            set
+            {
+                EnsureInit();
+                var v = value ? 1 : 0;
+                MpvApi.SetPropertyFlag(_ctx, "mute", MpvFormat.Flag, ref v);
+            }
+        }
+
+        public double Position
+        {
+            get
+            {
+                EnsureInit();
+                if (MpvApi.GetProperty(_ctx, "time-pos", MpvFormat.Double, out var val) == 0)
+                    return val;
+                return 0.0;
+            }
+        }
+
+        public double Duration
+        {
+            get
+            {
+                EnsureInit();
+                if (MpvApi.GetProperty(_ctx, "duration", MpvFormat.Double, out var val) == 0)
+                    return val;
+                return 0.0;
+            }
+        }
+
+        public double Speed
+        {
+            get
+            {
+                EnsureInit();
+                if (MpvApi.GetProperty(_ctx, "speed", MpvFormat.Double, out var val) == 0)
+                    return val;
+                return 1.0;
+            }
+            set
+            {
+                EnsureInit();
+                var v = value;
+                MpvApi.SetProperty(_ctx, "speed", MpvFormat.Double, ref v);
+            }
+        }
+
+        private void SetPause(bool paused)
+        {
+            var val = paused ? 1 : 0;
+            MpvApi.SetPropertyFlag(_ctx, "pause", MpvFormat.Flag, ref val);
+        }
+
+        private void EventLoop()
+        {
+            while (!_disposed)
+            {
+                var evtPtr = MpvApi.WaitEvent(_ctx, 0.5);
+                if (evtPtr == IntPtr.Zero) continue;
+
+                var evt = Marshal.PtrToStructure<MpvEvent>(evtPtr);
+
+                switch (evt.EventId)
+                {
+                    case MpvEventId.None:
+                        break;
+                    case MpvEventId.Shutdown:
+                        return;
+                    case MpvEventId.FileLoaded:
+                        LogHwdec();
+                        FileLoaded?.Invoke();
+                        break;
+                    case MpvEventId.EndFile:
+                        EndOfFile?.Invoke();
+                        break;
+                    case MpvEventId.PropertyChange:
+                        HandlePropertyChange(evt);
+                        break;
+                }
+            }
+        }
+
+        private void HandlePropertyChange(MpvEvent evt)
+        {
+            if (evt.Data == IntPtr.Zero) return;
+
+            var prop = Marshal.PtrToStructure<MpvEventProperty>(evt.Data);
+            if (prop.Data == IntPtr.Zero) return;
+
+            switch (evt.ReplyUserdata)
+            {
+                case ReplyPosition when prop.Format == MpvFormat.Double:
+                    PositionChanged?.Invoke(Marshal.PtrToStructure<double>(prop.Data));
+                    break;
+                case ReplyDuration when prop.Format == MpvFormat.Double:
+                    DurationChanged?.Invoke(Marshal.PtrToStructure<double>(prop.Data));
+                    break;
+                case ReplyPause when prop.Format == MpvFormat.Flag:
+                    PauseChanged?.Invoke(Marshal.PtrToStructure<int>(prop.Data) != 0);
+                    break;
+                case ReplyEofReached when prop.Format == MpvFormat.Flag:
+                    if (Marshal.PtrToStructure<int>(prop.Data) != 0)
+                        EndOfFile?.Invoke();
+                    break;
+            }
+        }
+
+        private void LogHwdec()
+        {
+            var hwdec = MpvApi.GetPropertyStringManaged(_ctx, "hwdec-current") ?? "none";
+            var codec = MpvApi.GetPropertyStringManaged(_ctx, "video-codec") ?? "?";
+            _logger.LogInformation("hwdec-current={Hwdec} video-codec={Codec}", hwdec, codec);
+        }
+
+        private void EnsureInit()
+        {
+            if (_ctx == IntPtr.Zero)
+                throw new InvalidOperationException("MpvPlayer is not initialized. Call InitNativeD3D11() first.");
+        }
+
+        private void CheckError(int errorCode)
+        {
+            if (errorCode < 0)
+            {
+                var msg = MpvApi.GetErrorMessage(errorCode) ?? $"mpv error {errorCode}";
+                _logger.LogError("mpv error: {Error}", msg);
+                throw new InvalidOperationException($"mpv error: {msg}");
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            if (_ctx != IntPtr.Zero)
+            {
+                // Drain the event loop before destroying the context: send "quit", which
+                // posts MpvEventId.Shutdown; the event thread sees it and returns. Joining
+                // first prevents WaitEvent/PtrToStructure from racing with TerminateDestroy
+                // (the previous order produced an AccessViolationException at shutdown).
+                try { MpvApi.CommandArgs(_ctx, "quit"); } catch { /* best-effort */ }
+                _eventThread?.Join(TimeSpan.FromSeconds(2));
+
+                MpvApi.TerminateDestroy(_ctx);
+                _ctx = IntPtr.Zero;
+            }
+            else
+            {
+                _eventThread?.Join(TimeSpan.FromSeconds(2));
+            }
+
+            _logger.LogInformation("mpv disposed");
+        }
+    }
+}

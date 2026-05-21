@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -9,11 +9,13 @@ using Microsoft.Extensions.Logging;
 namespace Narabemi.Settings
 {
     /// <summary>
-    /// load and save the AppState file.
+    /// Load and save the AppState file.
     /// </summary>
     public class AppStatesService
     {
-        private const string FileName = "appstates.json";
+        // Internal for unit-testing: lets tests assert that the path is install-relative.
+        internal static readonly string FilePath =
+            Path.Combine(AppContext.BaseDirectory, "appstates.json");
 
         private readonly JsonSerializerOptions _opt = new()
         {
@@ -29,32 +31,32 @@ namespace Narabemi.Settings
         public AppStatesService(ILogger<AppStatesService> logger)
         {
             _logger = logger;
-            _opt.Converters.Add(new ColorRgbaJsonConverter());
+            _opt.Converters.Add(new ColorRgbaJsonConverter(msg => _logger.LogWarning("{Message}", msg)));
         }
 
         public void LoadFile()
         {
-            if (!File.Exists(FileName))
+            if (!File.Exists(FilePath))
             {
-                _logger.LogWarning("{FileName} not found; using default {TypeName}.", FileName, nameof(AppStates));
+                _logger.LogWarning("{FilePath} not found; using default {TypeName}.", FilePath, nameof(AppStates));
                 Current = new AppStates();
                 return;
             }
 
             try
             {
-                var jsonText = File.ReadAllText(FileName);
+                var jsonText = File.ReadAllText(FilePath);
                 Current = JsonSerializer.Deserialize<AppStates>(jsonText, _opt);
 
                 if (Current is null)
                 {
-                    _logger.LogWarning("{FileName} deserialized to null; using default {TypeName}.", FileName, nameof(AppStates));
+                    _logger.LogWarning("{FilePath} deserialized to null; using default {TypeName}.", FilePath, nameof(AppStates));
                     Current = new AppStates();
                 }
             }
             catch (Exception ex) when (ex is IOException or JsonException)
             {
-                _logger.LogWarning(ex, "Failed to load {FileName}; using default {TypeName}.", FileName, nameof(AppStates));
+                _logger.LogWarning(ex, "Failed to load {FilePath}; using default {TypeName}.", FilePath, nameof(AppStates));
                 Current = new AppStates();
             }
         }
@@ -64,7 +66,14 @@ namespace Narabemi.Settings
             Guard.IsNotNull(Current);
 
             var jsonText = JsonSerializer.Serialize(Current, _opt);
-            File.WriteAllText(FileName, jsonText);
+            try
+            {
+                File.WriteAllText(FilePath, jsonText);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "Failed to save app state to {FilePath}", FilePath);
+            }
         }
 
         public void ApplyTo(IAppStateTarget target)
@@ -76,8 +85,12 @@ namespace Narabemi.Settings
             target.MainPlayerIndex = Current.MainPlayerIndex;
             for (int i = 0; i < Math.Min(target.StatePlayers.Count, Current.VideoPathList.Count); i++)
                 target.StatePlayers[i].VideoPath = Current.VideoPathList[i];
-            target.BlendBorderWidth = Current.BlendBorderWidth;
-            target.BlendBorderColor = Current.BlendBorderColor;
+            for (int i = 0; i < Math.Min(target.StatePlayers.Count, Current.PlayerSpeedList.Count); i++)
+                target.StatePlayers[i].Speed = Current.PlayerSpeedList[i];
+            for (int i = 0; i < Math.Min(target.StatePlayers.Count, Current.PlayerTimeOffsetList.Count); i++)
+                target.StatePlayers[i].TimeOffset = Current.PlayerTimeOffsetList[i];
+            target.BlendRatio = Current.BlendRatio;
+            target.BlendMode = Current.BlendMode;
         }
 
         public void ApplyFrom(IAppStateTarget target)
@@ -89,8 +102,12 @@ namespace Narabemi.Settings
             Current.MainPlayerIndex = target.MainPlayerIndex;
             Current.VideoPathList.Clear();
             Current.VideoPathList.AddRange(target.StatePlayers.Select(p => p.VideoPath));
-            Current.BlendBorderWidth = target.BlendBorderWidth;
-            Current.BlendBorderColor = target.BlendBorderColor;
+            Current.PlayerSpeedList.Clear();
+            Current.PlayerSpeedList.AddRange(target.StatePlayers.Select(p => p.Speed));
+            Current.PlayerTimeOffsetList.Clear();
+            Current.PlayerTimeOffsetList.AddRange(target.StatePlayers.Select(p => p.TimeOffset));
+            Current.BlendRatio = target.BlendRatio;
+            Current.BlendMode = target.BlendMode;
         }
     }
 }

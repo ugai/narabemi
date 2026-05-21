@@ -1,0 +1,207 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Narabemi.ViewModels"
+        xmlns:controls="using:Narabemi.UI.Controls"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="720"
+        x:Class="Narabemi.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding WindowTitle}"
+        Width="1280" Height="720"
+        MinWidth="640" MinHeight="360"
+        Background="Black"
+        DragDrop.AllowDrop="True">
+
+    <Grid RowDefinitions="*,Auto">
+        <!-- Dual-HWND native D3D11 video surface: each player owns a child HWND
+             that mpv renders into directly (vo=gpu, gpu-api=d3d11, hwdec=d3d11va).
+
+             Two-level layout for wipe-seam alignment:
+              - VideoGrid is the full video area (black background fills any margin).
+              - InnerVideoGrid is sized to the displayed-source aspect (computed from
+                Player A's source dims) and centered inside VideoGrid. Its Row/Column
+                definitions are reconfigured in code-behind from BlendMode (0=Horizontal,
+                1=Vertical) and BlendRatio (0..1).
+              - Each cell exactly matches its cropped region's aspect, so mpv does not
+                letterbox internally → A's right edge meets B's left edge at the seam.
+
+             VideoSplitter sits in a sibling cell between the two players — drag it
+             to update BlendRatio. Sibling-cell placement avoids NativeControlHost
+             airspace clipping. -->
+        <Grid Grid.Row="0" x:Name="VideoGrid" Background="Black">
+            <Grid x:Name="InnerVideoGrid"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center">
+                <controls:VideoPlayerControl x:Name="PlayerAView"
+                                             DataContext="{Binding PlayerA}" />
+                <!-- The splitter cell is 4px wide (SplitterPx in code-behind). 1px was too
+                     narrow to click reliably at HiDPI — PointerPressed never fired and the
+                     drag never started. The Border fills the entire cell with a single
+                     semi-transparent fill so there are no transparent gaps that would leak
+                     the parent's black background. Orientation is set from BlendMode. -->
+                <Border x:Name="VideoSplitter"
+                        Background="#66FFFFFF"
+                        BorderThickness="0"
+                        ToolTip.Tip="Drag to adjust split · Double-click to reset to 50%">
+                    <Border.Styles>
+                        <Style Selector="Border#VideoSplitter:pointerover">
+                            <Setter Property="Background" Value="#E6FFFFFF" />
+                        </Style>
+                    </Border.Styles>
+                </Border>
+                <controls:VideoPlayerControl x:Name="PlayerBView"
+                                             DataContext="{Binding PlayerB}" />
+            </Grid>
+            <!-- Drop feedback overlay: non-interactive, shows a blue border on DragEnter.
+                 Declared last so it renders on top of InnerVideoGrid. -->
+            <Border x:Name="DropBorder"
+                    BorderBrush="#4488FF"
+                    BorderThickness="0"
+                    IsHitTestVisible="False" />
+        </Grid>
+
+        <!-- Control panel -->
+        <Border Grid.Row="1"
+                x:Name="ControlPanel"
+                Background="#CC000000"
+                Padding="12,8">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                <!-- Playback controls -->
+                <StackPanel Grid.Row="0" Grid.Column="0"
+                            Orientation="Horizontal" Spacing="8"
+                            VerticalAlignment="Center">
+                    <Button Content="Play/Pause"
+                            Command="{Binding PlayPauseCommand}"
+                            Padding="8,4"
+                            Background="Transparent"
+                            Foreground="White" />
+                    <Button Content="Stop"
+                            Command="{Binding StopCommand}"
+                            Padding="8,4"
+                            Background="Transparent"
+                            Foreground="White" />
+                </StackPanel>
+
+                <!-- Seek bar + time display (driven by the primary player) -->
+                <Grid Grid.Row="0" Grid.Column="1"
+                      ColumnDefinitions="*,Auto"
+                      Margin="12,0">
+                    <Slider Grid.Column="0"
+                            x:Name="SeekBar"
+                            Minimum="0"
+                            Maximum="{Binding PrimaryPlayer.Duration, Mode=OneWay}"
+                            Value="{Binding PrimaryPlayer.Position, Mode=OneWay}"
+                            VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding PrimaryPlayer.TimeDisplay, Mode=OneWay}"
+                               Foreground="#AAAAAA" FontSize="11"
+                               Margin="8,0,0,0"
+                               VerticalAlignment="Center"
+                               FontFamily="Consolas,Courier New,monospace" />
+                </Grid>
+
+                <!-- Volume -->
+                <StackPanel Grid.Row="0" Grid.Column="2"
+                            Orientation="Horizontal" Spacing="4"
+                            VerticalAlignment="Center">
+                    <Button Content="Vol"
+                            Command="{Binding VolumeIconMouseDownCommand}"
+                            Padding="8,4"
+                            Background="Transparent"
+                            Foreground="White" />
+                    <Slider Minimum="0" Maximum="1"
+                            Value="{Binding MasterVolume}"
+                            Width="100"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Blend controls row -->
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                            Orientation="Horizontal" Spacing="12"
+                            Margin="0,4,0,0"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="Split:"
+                               Foreground="#AAAAAA" FontSize="11"
+                               VerticalAlignment="Center" />
+                    <Slider Minimum="0" Maximum="1"
+                            Value="{Binding BlendRatio, Mode=TwoWay}"
+                            Width="200"
+                            VerticalAlignment="Center" />
+                    <Button x:Name="BlendModeButton"
+                            Content="{Binding BlendModeLabel}"
+                            Padding="8,2"
+                            Background="Transparent"
+                            Foreground="White"
+                            FontSize="11" />
+                    <CheckBox Content="Sync"
+                              IsChecked="{Binding AutoSync}"
+                              Foreground="#AAAAAA" FontSize="11"
+                              VerticalAlignment="Center" />
+                    <CheckBox Content="Loop"
+                              IsChecked="{Binding Loop}"
+                              Foreground="#AAAAAA" FontSize="11"
+                              VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Per-player controls: volume, mute, playback speed, sync time offset -->
+                <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                      ColumnDefinitions="*,*"
+                      Margin="0,4,0,0">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="A" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock Text="Vol:" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
+                        <Slider Minimum="0" Maximum="1"
+                                Value="{Binding PlayerA.LocalVolume}"
+                                Width="60" VerticalAlignment="Center"/>
+                        <ToggleButton IsChecked="{Binding PlayerA.IsLocalVolumeMuted}"
+                                      Content="Mute" Padding="4,1" FontSize="11"/>
+                        <TextBlock Text="Speed:" Foreground="#AAAAAA" FontSize="11"
+                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        <Slider Minimum="0.25" Maximum="4.0"
+                                Value="{Binding PlayerA.Speed}"
+                                Width="60" VerticalAlignment="Center"/>
+                        <TextBlock Text="Offset:" Foreground="#AAAAAA" FontSize="11"
+                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        <NumericUpDown Value="{Binding PlayerA.TimeOffset, Mode=TwoWay}"
+                                       Minimum="-30" Maximum="30" Increment="0.1"
+                                       FormatString="0.0" Width="80" FontSize="11"
+                                       VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="B" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock Text="Vol:" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
+                        <Slider Minimum="0" Maximum="1"
+                                Value="{Binding PlayerB.LocalVolume}"
+                                Width="60" VerticalAlignment="Center"/>
+                        <ToggleButton IsChecked="{Binding PlayerB.IsLocalVolumeMuted}"
+                                      Content="Mute" Padding="4,1" FontSize="11"/>
+                        <TextBlock Text="Speed:" Foreground="#AAAAAA" FontSize="11"
+                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        <Slider Minimum="0.25" Maximum="4.0"
+                                Value="{Binding PlayerB.Speed}"
+                                Width="60" VerticalAlignment="Center"/>
+                        <TextBlock Text="Offset:" Foreground="#AAAAAA" FontSize="11"
+                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        <NumericUpDown Value="{Binding PlayerB.TimeOffset, Mode=TwoWay}"
+                                       Minimum="-30" Maximum="30" Increment="0.1"
+                                       FormatString="0.0" Width="80" FontSize="11"
+                                       VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Info bar: show both player file info -->
+                <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
+                            Orientation="Horizontal" Spacing="16"
+                            Margin="0,4,0,0">
+                    <TextBlock Text="{Binding PlayerA.DisplayInfo}"
+                               Foreground="Gray" FontSize="11" />
+                    <TextBlock Text="{Binding PlayerB.DisplayInfo}"
+                               Foreground="#888888" FontSize="11" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

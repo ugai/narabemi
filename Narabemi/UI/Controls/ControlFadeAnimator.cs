@@ -1,6 +1,7 @@
 using System;
-using System.Windows;
-using System.Windows.Media.Animation;
+using System.Collections.Generic;
+using Avalonia;
+using Avalonia.Animation;
 using CommunityToolkit.Mvvm.Messaging;
 using Narabemi.Services;
 
@@ -8,18 +9,13 @@ namespace Narabemi.UI.Controls
 {
     /// <summary>
     /// UI-layer helper that subscribes to <see cref="ControlsVisibilityMessage"/> and drives
-    /// fade-in / fade-out animations on registered <see cref="DependencyObject"/> targets.
-    /// Keeps WPF rendering types (<see cref="Storyboard"/>, <see cref="DoubleAnimation"/>)
-    /// out of the service layer.
+    /// fade-in / fade-out animations on registered targets via Avalonia Transitions.
     /// </summary>
     public sealed class ControlFadeAnimator : IDisposable
     {
-        private readonly Storyboard _showStoryboard = new();
-        private readonly Storyboard _hideStoryboard = new();
-
-        private readonly Duration _durationShow = new(TimeSpan.FromMilliseconds(100));
-        private readonly Duration _durationHide = new(TimeSpan.FromMilliseconds(300));
-        private readonly PropertyPath _propPath = new("Opacity");
+        private readonly List<Visual> _targets = new();
+        private readonly TimeSpan _durationShow = TimeSpan.FromMilliseconds(100);
+        private readonly TimeSpan _durationHide = TimeSpan.FromMilliseconds(300);
 
         public ControlFadeAnimator()
         {
@@ -27,30 +23,42 @@ namespace Narabemi.UI.Controls
                 ((ControlFadeAnimator)r).OnVisibilityChanged(m.Value));
         }
 
-        /// <summary>
-        /// Registers a <see cref="DependencyObject"/> to be faded in/out when
-        /// <see cref="ControlsVisibilityMessage"/> is received.
-        /// </summary>
-        public void AddTarget(DependencyObject target)
+        public void AddTarget(Visual target)
         {
-            var showAnim = new DoubleAnimation(0.0, 1.0, _durationShow);
-            var hideAnim = new DoubleAnimation(1.0, 0.0, _durationHide);
+            _targets.Add(target);
 
-            _showStoryboard.Children.Add(showAnim);
-            _hideStoryboard.Children.Add(hideAnim);
-
-            Storyboard.SetTargetProperty(showAnim, _propPath);
-            Storyboard.SetTargetProperty(hideAnim, _propPath);
-            Storyboard.SetTarget(showAnim, target);
-            Storyboard.SetTarget(hideAnim, target);
+            // Attach a Transition so that Opacity changes animate smoothly.
+            // The duration is updated dynamically in OnVisibilityChanged.
+            if (target is Animatable animatable)
+            {
+                animatable.Transitions ??= new Transitions();
+                animatable.Transitions.Add(new DoubleTransition
+                {
+                    Property = Visual.OpacityProperty,
+                    Duration = _durationHide,
+                });
+            }
         }
 
         private void OnVisibilityChanged(bool isVisible)
         {
-            if (isVisible)
-                _showStoryboard.Begin();
-            else
-                _hideStoryboard.Begin();
+            var to = isVisible ? 1.0 : 0.0;
+            var duration = isVisible ? _durationShow : _durationHide;
+
+            foreach (var target in _targets)
+            {
+                // Update transition duration to match show/hide
+                if (target is Animatable animatable && animatable.Transitions is not null)
+                {
+                    foreach (var t in animatable.Transitions)
+                    {
+                        if (t is DoubleTransition dt && dt.Property == Visual.OpacityProperty)
+                            dt.Duration = duration;
+                    }
+                }
+
+                target.Opacity = to;
+            }
         }
 
         public void Dispose() =>
