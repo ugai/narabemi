@@ -35,10 +35,11 @@
                   VerticalAlignment="Center">
                 <controls:VideoPlayerControl x:Name="PlayerAView"
                                              DataContext="{Binding PlayerA}" />
-                <!-- The splitter cell is exactly 1px wide (= the visible line). Wider hit
-                     zones leak the parent's background through any transparent gap, so we
-                     trade hit-area forgiveness for a clean 1px visual. The single Border
-                     fills its 1px cell; orientation is set in code-behind from BlendMode. -->
+                <!-- The splitter cell is 4px wide (SplitterPx in code-behind). 1px was too
+                     narrow to click reliably at HiDPI — PointerPressed never fired and the
+                     drag never started. The Border fills the entire cell with a single
+                     semi-transparent fill so there are no transparent gaps that would leak
+                     the parent's black background. Orientation is set from BlendMode. -->
                 <Border x:Name="VideoSplitter"
                         Background="#66FFFFFF"
                         BorderThickness="0"
