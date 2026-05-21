@@ -238,16 +238,6 @@ namespace Narabemi.ViewModels
             _mpvPlayer.Volume = Math.Clamp(volume, MinVolume, MaxVolume);
         }
 
-        partial void OnLocalVolumeChanged(double value)
-        {
-            UpdateActualVolume(1.0, false);
-        }
-
-        partial void OnIsLocalVolumeMutedChanged(bool value)
-        {
-            UpdateActualVolume(1.0, false);
-        }
-
         private void OnFileLoaded()
         {
             var path = _mpvPlayer.Duration > 0
