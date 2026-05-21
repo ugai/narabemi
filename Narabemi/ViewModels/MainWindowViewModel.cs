@@ -100,6 +100,12 @@ namespace Narabemi.ViewModels
                         SyncPlaybackState();
                     if (e.PropertyName == nameof(VideoPlayerViewModel.VideoPath))
                         OnPropertyChanged(nameof(WindowTitle));
+                    // Route local-volume / local-mute changes back through master state so
+                    // the effective mpv volume is always LocalVolume * MasterVolume, not
+                    // LocalVolume * 1.0 (the old hard-coded default in VideoPlayerViewModel).
+                    if (e.PropertyName is nameof(VideoPlayerViewModel.LocalVolume)
+                                       or nameof(VideoPlayerViewModel.IsLocalVolumeMuted))
+                        player.UpdateActualVolume(MasterVolume, IsMasterVolumeMuted);
                 };
             }
 

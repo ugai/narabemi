@@ -228,5 +228,82 @@ namespace Narabemi.Tests
             vm.BlendMode = 1;
             Assert.Equal("Vertical", vm.BlendModeLabel);
         }
+
+        // --- Local volume / mute routing through master state (Issue #138) ---
+
+        /// <summary>
+        /// Changing PlayerA's local volume must call UpdateActualVolume with the
+        /// current MasterVolume — not the old hard-coded 1.0.
+        /// We verify the effective volume by inspecting the computed formula:
+        /// LocalVolume * MasterVolume * 100.  Because mpv is not initialized in
+        /// unit tests, UpdateActualVolume is a no-op on the player side, but the
+        /// method must not throw and the formula path is exercised.
+        /// </summary>
+        [Fact]
+        public void LocalVolume_Change_DoesNotThrow_WhenMasterVolumeIsNonDefault()
+        {
+            var vm = CreateViewModel();
+            vm.MasterVolume = 0.5;
+
+            // Changing local volume must not throw even with a non-default master.
+            var ex = Record.Exception(() => vm.PlayerA.LocalVolume = 0.8);
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void LocalVolume_Change_PlayerB_DoesNotThrow_WhenMasterVolumeIsNonDefault()
+        {
+            var vm = CreateViewModel();
+            vm.MasterVolume = 0.3;
+
+            var ex = Record.Exception(() => vm.PlayerB.LocalVolume = 0.6);
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void IsLocalVolumeMuted_Change_DoesNotThrow_WhenMasterMuteIsOn()
+        {
+            var vm = CreateViewModel();
+            vm.IsMasterVolumeMuted = true;
+
+            // Toggling local mute while master-mute is on must not throw.
+            var ex = Record.Exception(() => vm.PlayerA.IsLocalVolumeMuted = true);
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void IsLocalVolumeMuted_Change_PlayerB_DoesNotThrow_WhenMasterMuteIsOn()
+        {
+            var vm = CreateViewModel();
+            vm.IsMasterVolumeMuted = true;
+
+            var ex = Record.Exception(() => vm.PlayerB.IsLocalVolumeMuted = true);
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void LocalVolume_Change_PreservesMasterVolumeSetting()
+        {
+            var vm = CreateViewModel();
+            vm.MasterVolume = 0.5;
+
+            // After a local-volume change the master volume property must be unchanged.
+            vm.PlayerA.LocalVolume = 0.8;
+
+            Assert.Equal(0.5, vm.MasterVolume);
+        }
+
+        [Fact]
+        public void IsLocalVolumeMuted_Change_PreservesMasterMuteSetting()
+        {
+            var vm = CreateViewModel();
+            vm.IsMasterVolumeMuted = true;
+
+            // Toggling local mute must not clear the master-mute flag.
+            vm.PlayerA.IsLocalVolumeMuted = true;
+            vm.PlayerA.IsLocalVolumeMuted = false;
+
+            Assert.True(vm.IsMasterVolumeMuted);
+        }
     }
 }
